@@ -1,27 +1,13 @@
-# Binaries
+# Build output
+/target/
 bin/
+
+# Binaries
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
-
-# Test binary
-*.test
-
-# Output of go coverage
-*.out
-coverage.html
-
-# Go workspace file
-go.work
-go.work.sum
-
-# Dependency directories
-vendor/
-
-# Build cache
-.cache/
 
 # Editor directories and files
 .idea/
@@ -29,3 +15,9 @@ vendor/
 *.swp
 *.swo
 *~
+
+# Build cache
+.cache/
+
+# direnv
+.direnv/
