@@ -10,6 +10,7 @@ pub enum RunxError {
     Offline(String),
     ProcessStart(io::Error),
     Release(String),
+    Update(String),
     Io(io::Error),
 }
 
@@ -23,6 +24,7 @@ impl fmt::Display for RunxError {
             Self::Offline(s) => write!(f, "{s}"),
             Self::ProcessStart(e) => write!(f, "starting process: {e}"),
             Self::Release(s) => write!(f, "release: {s}"),
+            Self::Update(s) => write!(f, "update: {s}"),
             Self::Io(e) => write!(f, "{e}"),
         }
     }

@@ -4,7 +4,8 @@ BINARY   := runx
 .PHONY: all build tests unit-tests lint fmt clean install \
         smoke-test-sh smoke-test-make smoke-test-docker smoke-test-compose \
         smoke-test-auto smoke-tests \
-        smoke-test-bin-bare smoke-test-bin-tar smoke-test-bin-cached
+        smoke-test-bin-bare smoke-test-bin-tar smoke-test-bin-cached \
+        smoke-test-update-check
 
 all: build
 
@@ -17,7 +18,7 @@ $(BINDIR)/$(BINARY): $(shell find src -name '*.rs') Cargo.toml
 
 tests: unit-tests smoke-tests
 
-unit-tests:
+unit-tests: $(BINDIR)/$(BINARY)
 	cargo test
 
 lint:
@@ -182,10 +183,20 @@ smoke-test-bin-cached: smoke-test-bin-bare
 	$(RUNX) --yes --offline jqlang/jq@jq-1.7.1 jq-macos-arm64 -- --version 2>&1 | grep -q 'jq-1.7.1'
 	@echo "    PASS"
 
+# ---------------------------------------------------------------------------
+# Self-update smoke test
+# ---------------------------------------------------------------------------
+
+smoke-test-update-check: $(BINDIR)/$(BINARY)
+	@echo "==> smoke: update --check"
+	$(RUNX) update --check 2>&1 | grep -qE '(up to date|update available|no releases found)'
+	@echo "    PASS"
+
 # Run all smoke tests
 smoke-tests: smoke-test-sh smoke-test-make smoke-test-docker smoke-test-compose \
              smoke-test-auto-sh smoke-test-auto-scripts-prefix \
              smoke-test-auto-make smoke-test-auto-make-default \
              smoke-test-auto-compose smoke-test-auto-docker-compose \
-             smoke-test-bin-bare smoke-test-bin-tar smoke-test-bin-cached
+             smoke-test-bin-bare smoke-test-bin-tar smoke-test-bin-cached \
+             smoke-test-update-check
 	@echo "==> All smoke tests passed."

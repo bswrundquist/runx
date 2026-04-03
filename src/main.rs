@@ -53,6 +53,24 @@ enum SubCmd {
 
     /// Download and run a release binary from GitHub
     Bin(ToolArgs),
+
+    /// Update runx to the latest release
+    Update(UpdateArgs),
+}
+
+#[derive(Args)]
+struct UpdateArgs {
+    /// Only check if an update is available; do not download
+    #[arg(long)]
+    check: bool,
+
+    /// Force update even if already on the latest version
+    #[arg(long)]
+    force: bool,
+
+    /// Print verbose output
+    #[arg(long)]
+    verbose: bool,
 }
 
 #[derive(Args)]
@@ -182,6 +200,9 @@ fn run_subcommand(cmd: SubCmd) -> i32 {
                 }
             };
             tools::release::run(flags, repo_ref, asset, &args.passthrough)
+        }
+        SubCmd::Update(args) => {
+            tools::update::run(args.check, args.force, args.verbose)
         }
     }
 }
