@@ -83,7 +83,7 @@ install_binary() {
     for candidate in "$ASSET_BASE" "${ASSET_BASE}.tar.gz" "${ASSET_BASE}.tgz" "${ASSET_BASE}.zip"; do
         maybe=$(printf '%s' "$RELEASE_JSON" \
             | grep '"browser_download_url"' \
-            | grep "\"${candidate}\"" \
+            | grep "/${candidate}\"" \
             | head -1 \
             | sed 's/.*"browser_download_url": *"//;s/".*//')
         if [ -n "$maybe" ]; then
