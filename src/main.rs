@@ -215,7 +215,7 @@ fn run_auto(auto: AutoArgs) -> i32 {
             eprintln!();
             eprintln!("Usage: runx [flags] <repo[@ref]> [target] [-- args...]");
             eprintln!();
-            eprintln!("Subcommands: sh, docker, compose, make, bin");
+            eprintln!("Subcommands: sh, docker, compose, make, bin, update");
             eprintln!("Run 'runx --help' for more information.");
             return 2;
         }

@@ -134,6 +134,23 @@ pub fn run(check: bool, force: bool, verbose: bool) -> i32 {
         return 1;
     }
 
+    // Verify the downloaded binary is functional before replacing.
+    match Command::new(&tmp_path).args(["--version"]).output() {
+        Ok(out) if out.status.success() => {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            if !stdout.contains("runx") {
+                let _ = fs::remove_file(&tmp_path);
+                eprintln!("runx: update: downloaded binary failed verification (unexpected --version output)");
+                return 1;
+            }
+        }
+        _ => {
+            let _ = fs::remove_file(&tmp_path);
+            eprintln!("runx: update: downloaded binary failed verification (cannot execute)");
+            return 1;
+        }
+    }
+
     if let Err(e) = fs::rename(&tmp_path, &current_exe) {
         let _ = fs::remove_file(&tmp_path);
         if e.kind() == std::io::ErrorKind::PermissionDenied {

@@ -35,6 +35,7 @@ runx acme/infra@main                            # no target → default make tar
 | `docker` | Docker CLI with repo as build context | Docker daemon |
 | `compose` | Docker Compose from the repo | Docker daemon + Compose |
 | `bin` | A GitHub release binary | network access |
+| `update` | Self-update runx to the latest release | network access |
 
 ### Flags
 
@@ -48,6 +49,13 @@ runx acme/infra@main                            # no target → default make tar
 | `--pin` | Print the pinned-commit command after resolving a mutable ref |
 | `--commit <sha>` | Override ref resolution with a specific commit SHA |
 | `--verbose` | Print verbose output |
+
+#### Update flags
+
+| Flag | Description |
+|------|-------------|
+| `--check` | Check if an update is available without installing |
+| `--force` | Reinstall even if already on the latest version |
 
 ### Repo reference syntax
 
@@ -158,6 +166,7 @@ runx does **not** sandbox execution, verify signatures, or audit script content.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `RUNX_CACHE_DIR` | `~/.cache/runx` | Override the cache root |
+| `RUNX_REPO` | `bswrundquist/runx` | GitHub `owner/repo` used for self-update |
 
 ---
 
