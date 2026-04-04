@@ -209,11 +209,12 @@ release-patch: NEXT_VERSION = $(MAJOR).$(MINOR).$(shell echo $$(($(PATCH)+1)))
 release-minor: NEXT_VERSION = $(MAJOR).$(shell echo $$(($(MINOR)+1))).0
 release-major: NEXT_VERSION = $(shell echo $$(($(MAJOR)+1))).0.0
 
-release-patch release-minor release-major: unit-tests
+release-patch release-minor release-major:
 	@if [ -n "$$(git status --porcelain)" ]; then \
 		echo "error: working tree is dirty — commit or stash changes before releasing"; \
 		exit 1; \
 	fi
+	@cargo test
 	@echo "Releasing v$(NEXT_VERSION) (was v$(CURRENT_VERSION))"
 	@sed -i.bak 's/^version = "$(CURRENT_VERSION)"/version = "$(NEXT_VERSION)"/' Cargo.toml && rm -f Cargo.toml.bak
 	@cargo check --quiet 2>/dev/null

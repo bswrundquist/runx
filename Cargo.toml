@@ -1,6 +1,6 @@
 [package]
 name = "runx"
-version = "0.1.0"
+version = "0.0.0"
 edition = "2021"
 description = "Execute scripts, make targets, docker, compose, and release binaries from git repositories"
 license = "MIT"
