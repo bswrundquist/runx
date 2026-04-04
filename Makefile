@@ -215,7 +215,7 @@ release-patch release-minor release-major: unit-tests
 		exit 1; \
 	fi
 	@echo "Releasing v$(NEXT_VERSION) (was v$(CURRENT_VERSION))"
-	@sed -i '' 's/^version = "$(CURRENT_VERSION)"/version = "$(NEXT_VERSION)"/' Cargo.toml
+	@sed -i.bak 's/^version = "$(CURRENT_VERSION)"/version = "$(NEXT_VERSION)"/' Cargo.toml && rm -f Cargo.toml.bak
 	@cargo check --quiet 2>/dev/null
 	@git add Cargo.toml Cargo.lock
 	@git commit -m "release: v$(NEXT_VERSION)"
