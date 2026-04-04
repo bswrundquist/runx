@@ -106,8 +106,18 @@ fn runx_bin() -> PathBuf {
     PathBuf::from("bin/runx")
 }
 
+/// Helper: build common args for a repo (flags before repo, mode/target after).
+fn base_args(cache_dir: &Path, sha: &str, bare: &Path) -> Vec<String> {
+    vec![
+        "--yes".to_string(),
+        format!("--cache-dir={}", cache_dir.display()),
+        format!("--commit={sha}"),
+        format!("file://{}", bare.display()),
+    ]
+}
+
 // ---------------------------------------------------------------------------
-// Make tests
+// Make tests (explicit mode: runx <repo> make [target])
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -121,17 +131,11 @@ fn make_target() {
     let canonical = format!("file://{}", bare.display());
     prepare_repo_in_cache(&bare, cache_dir.path(), &canonical);
 
-    let out = Command::new(runx_bin())
-        .args([
-            "make",
-            "--yes",
-            &format!("--cache-dir={}", cache_dir.path().display()),
-            &format!("--commit={sha}"),
-            &format!("file://{}", bare.display()),
-            "greet",
-        ])
-        .output()
-        .unwrap();
+    let mut args = base_args(cache_dir.path(), &sha, &bare);
+    args.push("make".to_string());
+    args.push("greet".to_string());
+
+    let out = Command::new(runx_bin()).args(&args).output().unwrap();
 
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
@@ -151,16 +155,10 @@ fn make_default_target() {
     let canonical = format!("file://{}", bare.display());
     prepare_repo_in_cache(&bare, cache_dir.path(), &canonical);
 
-    let out = Command::new(runx_bin())
-        .args([
-            "make",
-            "--yes",
-            &format!("--cache-dir={}", cache_dir.path().display()),
-            &format!("--commit={sha}"),
-            &format!("file://{}", bare.display()),
-        ])
-        .output()
-        .unwrap();
+    let mut args = base_args(cache_dir.path(), &sha, &bare);
+    args.push("make".to_string());
+
+    let out = Command::new(runx_bin()).args(&args).output().unwrap();
 
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
@@ -180,17 +178,11 @@ fn make_exit_code() {
     let canonical = format!("file://{}", bare.display());
     prepare_repo_in_cache(&bare, cache_dir.path(), &canonical);
 
-    let status = Command::new(runx_bin())
-        .args([
-            "make",
-            "--yes",
-            &format!("--cache-dir={}", cache_dir.path().display()),
-            &format!("--commit={sha}"),
-            &format!("file://{}", bare.display()),
-            "fail",
-        ])
-        .status()
-        .unwrap();
+    let mut args = base_args(cache_dir.path(), &sha, &bare);
+    args.push("make".to_string());
+    args.push("fail".to_string());
+
+    let status = Command::new(runx_bin()).args(&args).status().unwrap();
 
     assert!(!status.success(), "expected non-zero exit code");
 }
@@ -206,17 +198,11 @@ fn make_write_does_not_dirty_immutable_cache() {
     let canonical = format!("file://{}", bare.display());
     prepare_repo_in_cache(&bare, cache_dir.path(), &canonical);
 
-    let status = Command::new(runx_bin())
-        .args([
-            "make",
-            "--yes",
-            &format!("--cache-dir={}", cache_dir.path().display()),
-            &format!("--commit={sha}"),
-            &format!("file://{}", bare.display()),
-            "build",
-        ])
-        .status()
-        .unwrap();
+    let mut args = base_args(cache_dir.path(), &sha, &bare);
+    args.push("make".to_string());
+    args.push("build".to_string());
+
+    let status = Command::new(runx_bin()).args(&args).status().unwrap();
     assert!(status.success());
 
     // Check that the immutable tree does NOT have artifact.txt.
@@ -229,7 +215,7 @@ fn make_write_does_not_dirty_immutable_cache() {
 }
 
 // ---------------------------------------------------------------------------
-// Shell tests
+// Shell tests (explicit mode: runx <repo> sh <script>)
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -240,17 +226,11 @@ fn sh_exit_code() {
     let canonical = format!("file://{}", bare.display());
     prepare_repo_in_cache(&bare, cache_dir.path(), &canonical);
 
-    let status = Command::new(runx_bin())
-        .args([
-            "sh",
-            "--yes",
-            &format!("--cache-dir={}", cache_dir.path().display()),
-            &format!("--commit={sha}"),
-            &format!("file://{}", bare.display()),
-            "exit42.sh",
-        ])
-        .status()
-        .unwrap();
+    let mut args = base_args(cache_dir.path(), &sha, &bare);
+    args.push("sh".to_string());
+    args.push("exit42.sh".to_string());
+
+    let status = Command::new(runx_bin()).args(&args).status().unwrap();
 
     assert_eq!(status.code(), Some(42));
 }
@@ -264,17 +244,11 @@ fn sh_no_shebang() {
     let canonical = format!("file://{}", bare.display());
     prepare_repo_in_cache(&bare, cache_dir.path(), &canonical);
 
-    let out = Command::new(runx_bin())
-        .args([
-            "sh",
-            "--yes",
-            &format!("--cache-dir={}", cache_dir.path().display()),
-            &format!("--commit={sha}"),
-            &format!("file://{}", bare.display()),
-            "noshebang.sh",
-        ])
-        .output()
-        .unwrap();
+    let mut args = base_args(cache_dir.path(), &sha, &bare);
+    args.push("sh".to_string());
+    args.push("noshebang.sh".to_string());
+
+    let out = Command::new(runx_bin()).args(&args).output().unwrap();
 
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert_eq!(stdout, "ran-without-shebang");
@@ -293,11 +267,11 @@ fn sh_arg_passthrough() {
 
     let out = Command::new(runx_bin())
         .args([
-            "sh",
             "--yes",
             &format!("--cache-dir={}", cache_dir.path().display()),
             &format!("--commit={sha}"),
             &format!("file://{}", bare.display()),
+            "sh",
             "args.sh",
             "--",
             "--dry-run",
@@ -313,7 +287,7 @@ fn sh_arg_passthrough() {
 }
 
 // ---------------------------------------------------------------------------
-// Auto-detection tests (via CLI)
+// Auto-detection tests (via pattern matching)
 // ---------------------------------------------------------------------------
 
 /// Helper: run runx with auto-detection and return (stdout, stderr, exit_code).
@@ -365,8 +339,6 @@ fn auto_detect_shell_bash_ext() {
 
 #[test]
 fn auto_detect_shell_zsh_ext() {
-    // .zsh extension should auto-detect as shell mode.
-    // We run it via sh since zsh may not be installed.
     let (_td, bare, sha) = make_local_repo(&[("init.zsh", "echo auto-zsh\n")]);
     let cache = tempfile::tempdir().unwrap();
     let (stdout, _, code) = run_auto(&bare, &sha, cache.path(), Some("init.zsh"));
@@ -376,7 +348,6 @@ fn auto_detect_shell_zsh_ext() {
 
 #[test]
 fn auto_detect_shell_scripts_prefix() {
-    // Anything under scripts/ should auto-detect as shell.
     let (_td, bare, sha) = make_local_repo(&[(
         "scripts/bootstrap",
         "#!/bin/sh\necho scripts-prefix\n",
@@ -389,7 +360,6 @@ fn auto_detect_shell_scripts_prefix() {
 
 #[test]
 fn auto_detect_shell_uppercase_ext() {
-    // Case-insensitive: .SH should also detect as shell.
     let (_td, bare, sha) = make_local_repo(&[("RUN.SH", "#!/bin/sh\necho upper-sh\n")]);
     let cache = tempfile::tempdir().unwrap();
     let (stdout, _, code) = run_auto(&bare, &sha, cache.path(), Some("RUN.SH"));
@@ -397,82 +367,49 @@ fn auto_detect_shell_uppercase_ext() {
     assert!(stdout.contains("upper-sh"), "expected 'upper-sh', got: {stdout}");
 }
 
-// --- Make auto-detection ---
+// --- No-match: bare words and absent target produce error ---
 
 #[test]
-fn auto_detect_make_bare_word() {
+fn no_match_bare_word_errors() {
     let (_td, bare, sha) = make_local_repo(&[(
         "Makefile",
         ".PHONY: build\nbuild:\n\t@echo auto-make\n",
     )]);
     let cache = tempfile::tempdir().unwrap();
-    let (stdout, _, code) = run_auto(&bare, &sha, cache.path(), Some("build"));
-    assert_eq!(code, 0);
-    assert!(stdout.contains("auto-make"), "expected 'auto-make', got: {stdout}");
+    let (_, stderr, code) = run_auto(&bare, &sha, cache.path(), Some("build"));
+    assert_eq!(code, 2, "expected exit code 2, got {code}");
+    assert!(stderr.contains("does not match"), "expected error message, got: {stderr}");
 }
 
 #[test]
-fn auto_detect_make_no_target() {
-    // No target at all → make mode with default target.
+fn no_match_no_target_errors() {
     let (_td, bare, sha) = make_local_repo(&[(
         "Makefile",
         ".PHONY: all\nall:\n\t@echo default-make\n",
     )]);
     let cache = tempfile::tempdir().unwrap();
-    let (stdout, _, code) = run_auto(&bare, &sha, cache.path(), None);
-    assert_eq!(code, 0);
-    assert!(stdout.contains("default-make"), "expected 'default-make', got: {stdout}");
+    let (_, stderr, code) = run_auto(&bare, &sha, cache.path(), None);
+    assert_eq!(code, 2, "expected exit code 2, got {code}");
+    assert!(stderr.contains("no mode or target"), "expected error message, got: {stderr}");
 }
 
 #[test]
-fn auto_detect_make_hyphenated_target() {
-    // Hyphenated target names should be treated as make targets, not shell.
+fn no_match_hyphenated_target_errors() {
     let (_td, bare, sha) = make_local_repo(&[(
         "Makefile",
         ".PHONY: run-tests\nrun-tests:\n\t@echo hyphen-make\n",
     )]);
     let cache = tempfile::tempdir().unwrap();
-    let (stdout, _, code) = run_auto(&bare, &sha, cache.path(), Some("run-tests"));
-    assert_eq!(code, 0);
-    assert!(stdout.contains("hyphen-make"), "expected 'hyphen-make', got: {stdout}");
+    let (_, stderr, code) = run_auto(&bare, &sha, cache.path(), Some("run-tests"));
+    assert_eq!(code, 2, "expected exit code 2, got {code}");
+    assert!(stderr.contains("does not match"), "expected error message, got: {stderr}");
 }
 
-#[test]
-fn auto_detect_make_with_passthrough() {
-    // Make target with passthrough args after --.
-    let (_td, bare, sha) = make_local_repo(&[(
-        "Makefile",
-        ".PHONY: greet\ngreet:\n\t@echo hello-passthrough\n",
-    )]);
-    let cache = tempfile::tempdir().unwrap();
-    let canonical = format!("file://{}", bare.display());
-    prepare_repo_in_cache(&bare, cache.path(), &canonical);
-
-    let out = Command::new(runx_bin())
-        .args([
-            "--yes",
-            &format!("--cache-dir={}", cache.path().display()),
-            &format!("--commit={sha}"),
-            &format!("file://{}", bare.display()),
-            "greet",
-            "--",
-            "VERBOSE=1",
-        ])
-        .output()
-        .unwrap();
-
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(
-        stdout.contains("hello-passthrough"),
-        "expected 'hello-passthrough', got: {stdout}"
-    );
-}
-
-// --- Explicit subcommand overrides auto-detection ---
+// --- Explicit mode overrides auto-detection ---
 
 #[test]
-fn explicit_sh_overrides_make_detection() {
-    // A bare word like "run" would auto-detect as make, but `runx sh` forces shell mode.
+fn explicit_sh_overrides_detection() {
+    // A bare word like "run" would not auto-detect, but `runx <repo> sh run` forces shell mode.
     let (_td, bare, sha) = make_local_repo(&[("run", "#!/bin/sh\necho forced-shell\n")]);
     let cache = tempfile::tempdir().unwrap();
     let canonical = format!("file://{}", bare.display());
@@ -480,11 +417,11 @@ fn explicit_sh_overrides_make_detection() {
 
     let out = Command::new(runx_bin())
         .args([
-            "sh",
             "--yes",
             &format!("--cache-dir={}", cache.path().display()),
             &format!("--commit={sha}"),
             &format!("file://{}", bare.display()),
+            "sh",
             "run",
         ])
         .output()
@@ -498,9 +435,8 @@ fn explicit_sh_overrides_make_detection() {
 }
 
 #[test]
-fn explicit_make_overrides_shell_detection() {
-    // "deploy.sh" would auto-detect as shell, but `runx make` forces make mode.
-    // The make target is literally named "deploy.sh".
+fn explicit_make_overrides_detection() {
+    // "deploy.sh" would auto-detect as shell, but `runx <repo> make deploy.sh` forces make mode.
     let (_td, bare, sha) = make_local_repo(&[(
         "Makefile",
         ".PHONY: deploy.sh\ndeploy.sh:\n\t@echo forced-make\n",
@@ -511,11 +447,11 @@ fn explicit_make_overrides_shell_detection() {
 
     let out = Command::new(runx_bin())
         .args([
-            "make",
             "--yes",
             &format!("--cache-dir={}", cache.path().display()),
             &format!("--commit={sha}"),
             &format!("file://{}", bare.display()),
+            "make",
             "deploy.sh",
         ])
         .output()
@@ -538,14 +474,248 @@ fn auto_detect_shell_exit_code() {
     assert_eq!(code, 13, "expected exit code 13, got {code}");
 }
 
+// ---------------------------------------------------------------------------
+// Mode keyword aliases
+// ---------------------------------------------------------------------------
+
 #[test]
-fn auto_detect_make_exit_code() {
+fn alias_shx() {
+    let (_td, bare, sha) = make_local_repo(&[("hello.sh", "#!/bin/sh\necho alias-shx\n")]);
+    let cache = tempfile::tempdir().unwrap();
+    let canonical = format!("file://{}", bare.display());
+    prepare_repo_in_cache(&bare, cache.path(), &canonical);
+
+    let mut args = base_args(cache.path(), &sha, &bare);
+    args.push("shx".to_string());
+    args.push("hello.sh".to_string());
+
+    let out = Command::new(runx_bin()).args(&args).output().unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("alias-shx"), "expected 'alias-shx', got: {stdout}");
+}
+
+#[test]
+fn alias_makex() {
     let (_td, bare, sha) = make_local_repo(&[(
         "Makefile",
-        ".PHONY: boom\nboom:\n\t@exit 42\n",
+        ".PHONY: hi\nhi:\n\t@echo alias-makex\n",
     )]);
     let cache = tempfile::tempdir().unwrap();
-    let (_, _, code) = run_auto(&bare, &sha, cache.path(), Some("boom"));
-    // make wraps non-zero exits as exit code 2
-    assert_ne!(code, 0, "expected non-zero exit code");
+    let canonical = format!("file://{}", bare.display());
+    prepare_repo_in_cache(&bare, cache.path(), &canonical);
+
+    let mut args = base_args(cache.path(), &sha, &bare);
+    args.push("makex".to_string());
+    args.push("hi".to_string());
+
+    let out = Command::new(runx_bin()).args(&args).output().unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("alias-makex"), "expected 'alias-makex', got: {stdout}");
+}
+
+#[test]
+fn alias_dc() {
+    // "dc" should be accepted as a compose alias (will fail to run without docker,
+    // but we verify the mode is selected correctly by checking stderr for compose-related output).
+    let (_td, bare, sha) = make_local_repo(&[(
+        "compose.yml",
+        "services:\n  app:\n    image: alpine\n",
+    )]);
+    let cache = tempfile::tempdir().unwrap();
+    let canonical = format!("file://{}", bare.display());
+    prepare_repo_in_cache(&bare, cache.path(), &canonical);
+
+    let mut args = base_args(cache.path(), &sha, &bare);
+    args.push("dc".to_string());
+    args.push("--".to_string());
+    args.push("config".to_string());
+
+    let out = Command::new(runx_bin()).args(&args).output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    // Should not error with "does not match" — mode was recognized.
+    assert!(!stderr.contains("does not match"), "dc alias not recognized: {stderr}");
+}
+
+#[test]
+fn alias_dcx() {
+    let (_td, bare, sha) = make_local_repo(&[(
+        "compose.yml",
+        "services:\n  app:\n    image: alpine\n",
+    )]);
+    let cache = tempfile::tempdir().unwrap();
+    let canonical = format!("file://{}", bare.display());
+    prepare_repo_in_cache(&bare, cache.path(), &canonical);
+
+    let mut args = base_args(cache.path(), &sha, &bare);
+    args.push("dcx".to_string());
+    args.push("--".to_string());
+    args.push("config".to_string());
+
+    let out = Command::new(runx_bin()).args(&args).output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!stderr.contains("does not match"), "dcx alias not recognized: {stderr}");
+}
+
+#[test]
+fn alias_dockerx() {
+    let (_td, bare, sha) = make_local_repo(&[("Dockerfile", "FROM alpine\n")]);
+    let cache = tempfile::tempdir().unwrap();
+    let canonical = format!("file://{}", bare.display());
+    prepare_repo_in_cache(&bare, cache.path(), &canonical);
+
+    let mut args = base_args(cache.path(), &sha, &bare);
+    args.push("dockerx".to_string());
+    args.push("--".to_string());
+    args.push("version".to_string());
+
+    let out = Command::new(runx_bin()).args(&args).output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!stderr.contains("does not match"), "dockerx alias not recognized: {stderr}");
+}
+
+// ---------------------------------------------------------------------------
+// Auto-detection: --verbose flag and compose/docker pattern detection
+// ---------------------------------------------------------------------------
+
+#[test]
+fn auto_detect_verbose_flag() {
+    let (_td, bare, sha) = make_local_repo(&[("deploy.sh", "#!/bin/sh\necho verbose-test\n")]);
+    let cache = tempfile::tempdir().unwrap();
+    let canonical = format!("file://{}", bare.display());
+    prepare_repo_in_cache(&bare, cache.path(), &canonical);
+
+    let out = Command::new(runx_bin())
+        .args([
+            "--verbose",
+            "--yes",
+            &format!("--cache-dir={}", cache.path().display()),
+            &format!("--commit={sha}"),
+            &format!("file://{}", bare.display()),
+            "deploy.sh",
+        ])
+        .output()
+        .unwrap();
+
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("auto-detected mode: shell"),
+        "expected verbose auto-detect message, got: {stderr}"
+    );
+}
+
+#[test]
+fn auto_detect_compose_pattern() {
+    // compose.yml triggers compose mode. The tool itself may fail (no docker),
+    // but we verify the mode was detected, not a "does not match" error.
+    let (_td, bare, sha) = make_local_repo(&[(
+        "compose.yml",
+        "services:\n  app:\n    image: alpine\n",
+    )]);
+    let cache = tempfile::tempdir().unwrap();
+    let (_, stderr, _) = run_auto(&bare, &sha, cache.path(), Some("compose.yml"));
+    assert!(!stderr.contains("does not match"), "compose.yml not detected: {stderr}");
+}
+
+#[test]
+fn auto_detect_dockerfile_pattern() {
+    // Dockerfile triggers docker mode. The tool itself may fail (no docker),
+    // but we verify the mode was detected, not a "does not match" error.
+    let (_td, bare, sha) = make_local_repo(&[("Dockerfile", "FROM alpine\n")]);
+    let cache = tempfile::tempdir().unwrap();
+    let (_, stderr, _) = run_auto(&bare, &sha, cache.path(), Some("Dockerfile"));
+    assert!(!stderr.contains("does not match"), "Dockerfile not detected: {stderr}");
+}
+
+// ---------------------------------------------------------------------------
+// Error paths: missing required args
+// ---------------------------------------------------------------------------
+
+#[test]
+fn sh_without_script_errors() {
+    let (_td, bare, sha) = make_local_repo(&[("dummy.txt", "x")]);
+    let cache = tempfile::tempdir().unwrap();
+    let canonical = format!("file://{}", bare.display());
+    prepare_repo_in_cache(&bare, cache.path(), &canonical);
+
+    let mut args = base_args(cache.path(), &sha, &bare);
+    args.push("sh".to_string());
+
+    let out = Command::new(runx_bin()).args(&args).output().unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("script path"), "expected script path error, got: {stderr}");
+}
+
+#[test]
+fn bin_without_asset_errors() {
+    let (_td, bare, sha) = make_local_repo(&[("dummy.txt", "x")]);
+    let cache = tempfile::tempdir().unwrap();
+    let canonical = format!("file://{}", bare.display());
+    prepare_repo_in_cache(&bare, cache.path(), &canonical);
+
+    let mut args = base_args(cache.path(), &sha, &bare);
+    args.push("bin".to_string());
+
+    let out = Command::new(runx_bin()).args(&args).output().unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("asset name"), "expected asset name error, got: {stderr}");
+}
+
+#[test]
+fn no_repo_errors() {
+    let out = Command::new(runx_bin())
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("expected"), "expected usage error, got: {stderr}");
+}
+
+// ---------------------------------------------------------------------------
+// Error message content
+// ---------------------------------------------------------------------------
+
+#[test]
+fn no_match_error_shows_hint() {
+    let (_td, bare, sha) = make_local_repo(&[("dummy.txt", "x")]);
+    let cache = tempfile::tempdir().unwrap();
+    let (_, stderr, code) = run_auto(&bare, &sha, cache.path(), Some("something"));
+    assert_eq!(code, 2);
+    assert!(stderr.contains("explicit mode"), "expected hint about explicit mode, got: {stderr}");
+}
+
+// ---------------------------------------------------------------------------
+// Make with passthrough args
+// ---------------------------------------------------------------------------
+
+#[test]
+fn make_passthrough_args() {
+    let (_td, bare, sha) = make_local_repo(&[(
+        "Makefile",
+        ".PHONY: greet\ngreet:\n\t@echo hello-passthrough\n",
+    )]);
+    let cache = tempfile::tempdir().unwrap();
+    let canonical = format!("file://{}", bare.display());
+    prepare_repo_in_cache(&bare, cache.path(), &canonical);
+
+    let out = Command::new(runx_bin())
+        .args([
+            "--yes",
+            &format!("--cache-dir={}", cache.path().display()),
+            &format!("--commit={sha}"),
+            &format!("file://{}", bare.display()),
+            "make",
+            "greet",
+            "--",
+            "VERBOSE=1",
+        ])
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("hello-passthrough"),
+        "expected 'hello-passthrough', got: {stdout}"
+    );
 }

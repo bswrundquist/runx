@@ -2,13 +2,21 @@ BINDIR   := ./bin
 BINARY   := runx
 
 .PHONY: all build tests unit-tests lint fmt clean install \
-        smoke-test-sh smoke-test-make smoke-test-docker smoke-test-compose \
-        smoke-test-auto smoke-tests \
+        smoke-test-sh smoke-test-make smoke-test-make-default \
+        smoke-test-docker smoke-test-compose \
+        smoke-test-auto-sh smoke-test-auto-scripts-prefix \
+        smoke-test-auto-compose smoke-test-auto-docker-compose \
+        smoke-test-auto-release \
+        smoke-test-no-match-bare-word smoke-test-no-match-no-target \
+        smoke-test-make-alias \
         smoke-test-bin-bare smoke-test-bin-tar smoke-test-bin-cached \
         smoke-test-update-check \
+        smoke-test-verbose smoke-test-pin \
+        smoke-test-make-exit-code smoke-test-sh-exit-code \
         smoke-test-gitlab-make smoke-test-gitlab-https \
         smoke-test-gitlab-bin smoke-test-gitlab-bin-cached \
         smoke-test-bitbucket-clone \
+        smoke-tests \
         release-patch release-minor release-major
 
 all: build
@@ -59,30 +67,30 @@ RUNX := ./$(BINDIR)/$(BINARY)
 # Repo:   rbenv/rbenv — Ruby version manager, 100% shell, tiny (~1 MB)
 # Script: bin/rbenv
 # What:   "rbenv help" prints usage and exits 0; grep confirms output
-# Mode:   explicit subcommand (bin/rbenv has no .sh extension)
+# Mode:   explicit mode (bin/rbenv has no .sh extension)
 smoke-test-sh: $(BINDIR)/$(BINARY)
 	@echo "==> smoke: sh   (rbenv/rbenv — bin/rbenv help)"
-	$(RUNX) sh --yes rbenv/rbenv@master bin/rbenv -- help 2>&1 | grep -q 'rbenv'
+	$(RUNX) --yes rbenv/rbenv@master sh bin/rbenv -- help 2>&1 | grep -q 'rbenv'
 	@echo "    PASS"
 
 # smoke-test-make
 # Repo:   bswrundquist/vcoder — has .DEFAULT_GOAL := help; the help target
 #         uses only echo/grep/awk (no extra tools) and exits 0
-# What:   bare word "help" auto-detects as make target
+# What:   explicit make mode with "help" target
 smoke-test-make: $(BINDIR)/$(BINARY)
 	@echo "==> smoke: make (bswrundquist/vcoder — make help)"
-	$(RUNX) --yes bswrundquist/vcoder@main help 2>&1 | grep -q 'vcoder'
+	$(RUNX) --yes bswrundquist/vcoder@main make help 2>&1 | grep -q 'vcoder'
 	@echo "    PASS"
 
 # smoke-test-docker
 # Repo:   rbenv/rbenv — already cached from smoke-test-sh, so this is instant
 # What:   "docker info --format '{{.ServerVersion}}'" prints the Docker version
-# Mode:   explicit subcommand (docker args require --)
+# Mode:   explicit mode (docker args require --)
 # Guard:  skipped gracefully if Docker daemon is not running
 smoke-test-docker: $(BINDIR)/$(BINARY)
 	@docker info >/dev/null 2>&1 || { echo "    SKIP: docker not running"; exit 0; }
 	@echo "==> smoke: docker (rbenv/rbenv — docker info)"
-	$(RUNX) docker --yes rbenv/rbenv@master \
+	$(RUNX) --yes rbenv/rbenv@master docker \
 	    -- info --format '{{.ServerVersion}}' 2>&1 | grep -qE '^[0-9]+\.'
 	@echo "    PASS"
 
@@ -90,12 +98,12 @@ smoke-test-docker: $(BINDIR)/$(BINARY)
 # Repo:   dockersamples/wordsmith — canonical multi-service Compose demo
 # What:   "docker compose config --quiet" validates the file without
 #         pulling images or starting any containers; exits 0 on a valid file
-# Mode:   explicit subcommand (compose args require --)
+# Mode:   explicit mode (compose args require --)
 # Guard:  skipped gracefully if Docker daemon is not running
 smoke-test-compose: $(BINDIR)/$(BINARY)
 	@docker info >/dev/null 2>&1 || { echo "    SKIP: docker not running"; exit 0; }
 	@echo "==> smoke: compose (dockersamples/wordsmith — compose config)"
-	$(RUNX) compose --yes dockersamples/wordsmith@main \
+	$(RUNX) --yes dockersamples/wordsmith@main compose \
 	    -- config --quiet
 	@echo "    PASS"
 
@@ -121,20 +129,12 @@ smoke-test-auto-scripts-prefix: $(BINDIR)/$(BINARY)
 	$(RUNX) --verbose --yes rbenv/rbenv@master scripts/whatever 2>&1 | grep -q 'auto-detected mode: shell'
 	@echo "    PASS"
 
-# auto-detect: bare word → make mode
-# Repo:   bswrundquist/vcoder
-# What:   "help" is a plain word → auto-detects as make target
-smoke-test-auto-make: $(BINDIR)/$(BINARY)
-	@echo "==> smoke: auto-detect make (bare word target)"
-	$(RUNX) --yes bswrundquist/vcoder@main help 2>&1 | grep -q 'vcoder'
-	@echo "    PASS"
-
-# auto-detect: no target at all → make mode (default target)
+# explicit make: default target (no target arg)
 # Repo:   bswrundquist/vcoder (.DEFAULT_GOAL := help)
-# What:   no second argument → auto-detects as make, runs default target
-smoke-test-auto-make-default: $(BINDIR)/$(BINARY)
-	@echo "==> smoke: auto-detect make (no target — default goal)"
-	$(RUNX) --yes bswrundquist/vcoder@main 2>&1 | grep -q 'vcoder'
+# What:   "runx <repo> make" with no target runs the default make goal
+smoke-test-make-default: $(BINDIR)/$(BINARY)
+	@echo "==> smoke: explicit make (no target — default goal)"
+	$(RUNX) --yes bswrundquist/vcoder@main make 2>&1 | grep -q 'vcoder'
 	@echo "    PASS"
 
 # auto-detect: compose.yml → compose mode
@@ -205,47 +205,125 @@ smoke-test-update-check: $(BINDIR)/$(BINARY)
 # smoke-test-gitlab-make
 # Repo:   gitlab.com/gitlab-org/cli — the official GitLab CLI (glab)
 # What:   "make help" prints available make targets; grep confirms output
-# Mode:   host-qualified shorthand → GitLab
+# Mode:   host-qualified shorthand → GitLab, explicit make
 smoke-test-gitlab-make: $(BINDIR)/$(BINARY)
 	@echo "==> smoke: gitlab shorthand (gitlab-org/cli — make help)"
-	$(RUNX) --yes gitlab.com/gitlab-org/cli@v1.46.1 help 2>&1 | grep -q 'clean'
+	$(RUNX) --yes gitlab.com/gitlab-org/cli@v1.46.1 make help 2>&1 | grep -q 'clean'
 	@echo "    PASS"
 
 # smoke-test-gitlab-https
 # Repo:   gitlab.com/gitlab-org/gitlab-runner — the official GitLab Runner
 # What:   "make version" prints version info via full HTTPS URL
-# Mode:   full HTTPS URL → GitLab
+# Mode:   full HTTPS URL → GitLab, explicit make
 smoke-test-gitlab-https: $(BINDIR)/$(BINARY)
 	@echo "==> smoke: gitlab HTTPS (gitlab-runner — make version)"
-	$(RUNX) --yes https://gitlab.com/gitlab-org/gitlab-runner@v17.4.0 version 2>&1 | grep -q 'Current version'
+	$(RUNX) --yes https://gitlab.com/gitlab-org/gitlab-runner@v17.4.0 make version 2>&1 | grep -q 'Current version'
 	@echo "    PASS"
 
 # smoke-test-gitlab-bin
 # Repo:   gitlab.com/gitlab-org/cli — glab releases with binary assets
 # Asset:  glab_1.46.1_macOS_arm64.tar.gz
 # What:   downloads via GitLab release API, extracts, runs "glab --version"
-# Mode:   host-qualified shorthand + release binary
+# Mode:   host-qualified shorthand + explicit bin
 smoke-test-gitlab-bin: $(BINDIR)/$(BINARY)
 	@echo "==> smoke: gitlab bin (gitlab-org/cli — release binary, glab --version)"
-	$(RUNX) bin --yes gitlab.com/gitlab-org/cli@v1.46.1 glab_1.46.1_macOS_arm64.tar.gz -- --version 2>&1 | grep -q '1.46.1'
+	$(RUNX) --yes gitlab.com/gitlab-org/cli@v1.46.1 bin glab_1.46.1_macOS_arm64.tar.gz -- --version 2>&1 | grep -q '1.46.1'
 	@echo "    PASS"
 
 # smoke-test-gitlab-bin-cached
 # Re-run glab with --offline to verify the cache from smoke-test-gitlab-bin
 smoke-test-gitlab-bin-cached: smoke-test-gitlab-bin
 	@echo "==> smoke: gitlab bin (gitlab-org/cli — cached, --offline)"
-	$(RUNX) bin --yes --offline gitlab.com/gitlab-org/cli@v1.46.1 glab_1.46.1_macOS_arm64.tar.gz -- --version 2>&1 | grep -q '1.46.1'
+	$(RUNX) --yes --offline gitlab.com/gitlab-org/cli@v1.46.1 bin glab_1.46.1_macOS_arm64.tar.gz -- --version 2>&1 | grep -q '1.46.1'
 	@echo "    PASS"
 
 # smoke-test-bitbucket-clone
 # Repo:   bitbucket.org/snakemake/snakemake — workflow management system
-# What:   clones via host-qualified shorthand, verifies ref resolution
-#         (no Makefile in this version, so we verify the clone + checkout
-#          succeeded by checking that runx printed the resolved commit)
+# What:   clones via host-qualified shorthand, verifies ref resolution.
+#         No target → should error with "no mode or target" (proves clone worked).
 # Mode:   host-qualified shorthand → Bitbucket
 smoke-test-bitbucket-clone: $(BINDIR)/$(BINARY)
-	@echo "==> smoke: bitbucket shorthand (snakemake — clone + ref resolution)"
-	$(RUNX) --verbose --yes bitbucket.org/snakemake/snakemake@v2.5 2>&1 | grep -q 'auto-detected mode:'
+	@echo "==> smoke: bitbucket shorthand (snakemake — clone + no-mode error)"
+	$(RUNX) --yes bitbucket.org/snakemake/snakemake@v2.5 2>&1 | grep -q 'no mode or target'
+	@echo "    PASS"
+
+# ---------------------------------------------------------------------------
+# No-match error smoke tests — verify bare words and missing targets error.
+# ---------------------------------------------------------------------------
+
+# smoke-test-no-match-bare-word
+# Repo:   bswrundquist/vcoder
+# What:   bare word "help" does NOT auto-detect → exit 2 with error message
+smoke-test-no-match-bare-word: $(BINDIR)/$(BINARY)
+	@echo "==> smoke: no-match (bare word → error)"
+	! $(RUNX) --yes bswrundquist/vcoder@main help 2>/dev/null
+	$(RUNX) --yes bswrundquist/vcoder@main help 2>&1 | grep -q 'does not match'
+	@echo "    PASS"
+
+# smoke-test-no-match-no-target
+# Repo:   bswrundquist/vcoder
+# What:   no second arg → exit 2 with "no mode or target" error
+smoke-test-no-match-no-target: $(BINDIR)/$(BINARY)
+	@echo "==> smoke: no-match (no target → error)"
+	! $(RUNX) --yes bswrundquist/vcoder@main 2>/dev/null
+	$(RUNX) --yes bswrundquist/vcoder@main 2>&1 | grep -q 'no mode or target'
+	@echo "    PASS"
+
+# ---------------------------------------------------------------------------
+# Mode alias smoke test
+# ---------------------------------------------------------------------------
+
+# smoke-test-make-alias
+# Repo:   bswrundquist/vcoder
+# What:   "makex" alias works the same as "make"
+smoke-test-make-alias: $(BINDIR)/$(BINARY)
+	@echo "==> smoke: makex alias (bswrundquist/vcoder — makex help)"
+	$(RUNX) --yes bswrundquist/vcoder@main makex help 2>&1 | grep -q 'vcoder'
+	@echo "    PASS"
+
+# ---------------------------------------------------------------------------
+# Flag smoke tests — verify --verbose, --pin, and exit code propagation.
+# ---------------------------------------------------------------------------
+
+# smoke-test-auto-release
+# Repo:   jqlang/jq
+# What:   "jq-macos-arm64" matches RELEASE_RE → auto-detects as release.
+#         --verbose confirms the mode was detected, not manually specified.
+smoke-test-auto-release: $(BINDIR)/$(BINARY)
+	@echo "==> smoke: auto-detect release (jq-macos-arm64 pattern)"
+	$(RUNX) --verbose --yes jqlang/jq@jq-1.7.1 jq-macos-arm64 -- --version 2>&1 | grep -q 'auto-detected mode: release'
+	@echo "    PASS"
+
+# smoke-test-verbose
+# Repo:   rbenv/rbenv
+# What:   --verbose prints auto-detected mode for .sh extension
+smoke-test-verbose: $(BINDIR)/$(BINARY)
+	@echo "==> smoke: --verbose (auto-detect shell)"
+	$(RUNX) --verbose --yes rbenv/rbenv@master libexec/rbenv-init.sh -- - bash 2>&1 | grep -q 'auto-detected mode: shell'
+	@echo "    PASS"
+
+# smoke-test-pin
+# Repo:   bswrundquist/vcoder (mutable ref: main)
+# What:   --pin prints the pinned-commit command after resolving
+smoke-test-pin: $(BINDIR)/$(BINARY)
+	@echo "==> smoke: --pin (bswrundquist/vcoder@main)"
+	$(RUNX) --pin --yes bswrundquist/vcoder@main make help 2>&1 | grep -q 'pin'
+	@echo "    PASS"
+
+# smoke-test-make-exit-code
+# Repo:   bswrundquist/vcoder
+# What:   nonexistent make target → nonzero exit code propagates
+smoke-test-make-exit-code: $(BINDIR)/$(BINARY)
+	@echo "==> smoke: make exit code (nonexistent target)"
+	! $(RUNX) --yes bswrundquist/vcoder@main make nonexistent-target 2>/dev/null
+	@echo "    PASS"
+
+# smoke-test-sh-exit-code
+# Repo:   rbenv/rbenv
+# What:   rbenv with bad subcommand → nonzero exit code propagates
+smoke-test-sh-exit-code: $(BINDIR)/$(BINARY)
+	@echo "==> smoke: sh exit code (rbenv bad subcommand)"
+	! $(RUNX) --yes rbenv/rbenv@master sh bin/rbenv -- nonexistent-command 2>/dev/null
 	@echo "    PASS"
 
 # ---------------------------------------------------------------------------
@@ -281,10 +359,15 @@ release-patch release-minor release-major:
 	@echo "Pushed v$(NEXT_VERSION) — release workflow started"
 
 # Run all smoke tests
-smoke-tests: smoke-test-sh smoke-test-make smoke-test-docker smoke-test-compose \
+smoke-tests: smoke-test-sh smoke-test-make smoke-test-make-default \
+             smoke-test-docker smoke-test-compose \
              smoke-test-auto-sh smoke-test-auto-scripts-prefix \
-             smoke-test-auto-make smoke-test-auto-make-default \
              smoke-test-auto-compose smoke-test-auto-docker-compose \
+             smoke-test-auto-release \
+             smoke-test-no-match-bare-word smoke-test-no-match-no-target \
+             smoke-test-make-alias \
+             smoke-test-verbose smoke-test-pin \
+             smoke-test-make-exit-code smoke-test-sh-exit-code \
              smoke-test-bin-bare smoke-test-bin-tar smoke-test-bin-cached \
              smoke-test-update-check \
              smoke-test-gitlab-make smoke-test-gitlab-https \
