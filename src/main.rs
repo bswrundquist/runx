@@ -24,13 +24,13 @@ struct RunArgs {
     #[arg()]
     repo: Option<String>,
 
-    /// Mode (sh/docker/compose/make/bin) or target (deploy.sh, Dockerfile, etc.)
+    /// Mode: sh, docker, compose, make, bin
     #[arg()]
-    second: Option<String>,
+    mode: Option<String>,
 
-    /// Target (when second arg is a mode keyword)
+    /// Target (script path, make target, asset name)
     #[arg()]
-    third: Option<String>,
+    target: Option<String>,
 
     /// Arguments passed through to the underlying tool (after --)
     #[arg(last = true)]
@@ -127,7 +127,7 @@ fn run(args: RunArgs) -> i32 {
         None => {
             eprintln!("runx: error: expected <repo[@ref]>");
             eprintln!();
-            eprintln!("Usage: runx [flags] <repo[@ref]> [mode|target] [target] [-- args...]");
+            eprintln!("Usage: runx <repo[@ref]> <mode> [target] [-- args...]");
             eprintln!();
             eprintln!("Modes: sh, docker, compose, make, bin");
             eprintln!("Run 'runx --help' for more information.");
@@ -145,10 +145,9 @@ fn run(args: RunArgs) -> i32 {
 
     let flags = args.flags.into_flags();
 
-    match args.second.as_deref() {
-        // Explicit mode keywords
-        Some("sh" | "shx") => {
-            let script = match args.third.as_deref() {
+    match args.mode.as_deref() {
+        Some("sh") => {
+            let script = match args.target.as_deref() {
                 Some(s) => s,
                 None => {
                     eprintln!("runx: sh mode requires a script path");
@@ -157,17 +156,17 @@ fn run(args: RunArgs) -> i32 {
             };
             tools::shell::run(flags, repo_ref, script, &args.passthrough)
         }
-        Some("docker" | "dockerx") => {
+        Some("docker") => {
             tools::docker::run(flags, repo_ref, &args.passthrough)
         }
-        Some("compose" | "dc" | "dcx") => {
+        Some("compose") => {
             tools::compose::run(flags, repo_ref, &args.passthrough)
         }
-        Some("make" | "makex") => {
-            tools::make::run(flags, repo_ref, args.third.as_deref(), &args.passthrough)
+        Some("make") => {
+            tools::make::run(flags, repo_ref, args.target.as_deref(), &args.passthrough)
         }
         Some("bin") => {
-            let asset = match args.third.as_deref() {
+            let asset = match args.target.as_deref() {
                 Some(s) => s,
                 None => {
                     eprintln!("runx: bin mode requires an asset name");
@@ -176,51 +175,30 @@ fn run(args: RunArgs) -> i32 {
             };
             tools::release::run(flags, repo_ref, asset, &args.passthrough)
         }
-
-        // Auto-detect from file pattern
-        Some(target) => {
-            if let Some(mode) = tools::detect_mode(Some(target)) {
-                if flags.verbose {
-                    eprintln!("runx: auto-detected mode: {mode}");
-                }
-                match mode {
-                    tools::ToolMode::Shell => {
-                        tools::shell::run(flags, repo_ref, target, &args.passthrough)
-                    }
-                    tools::ToolMode::Docker => {
-                        tools::docker::run(flags, repo_ref, &args.passthrough)
-                    }
-                    tools::ToolMode::Compose => {
-                        tools::compose::run(flags, repo_ref, &args.passthrough)
-                    }
-                    tools::ToolMode::Release => {
-                        tools::release::run(flags, repo_ref, target, &args.passthrough)
-                    }
-                }
-            } else {
-                no_mode_error(Some(target))
-            }
+        Some(unknown) => {
+            eprintln!("runx: error: unknown mode {unknown:?}");
+            eprintln!();
+            eprintln!("  Available modes:");
+            eprintln!("    runx <repo> sh <script>         run a shell script");
+            eprintln!("    runx <repo> make [target]        run a make target");
+            eprintln!("    runx <repo> docker [-- args]     run docker");
+            eprintln!("    runx <repo> compose [-- args]    run docker compose");
+            eprintln!("    runx <repo> bin <asset> [-- args] run a release binary");
+            2
         }
-
-        // No second arg at all
-        None => no_mode_error(None),
+        None => {
+            eprintln!("runx: error: no mode specified");
+            eprintln!();
+            eprintln!("  Usage: runx <repo[@ref]> <mode> [target] [-- args...]");
+            eprintln!();
+            eprintln!("  Available modes:");
+            eprintln!("    runx <repo> sh <script>         run a shell script");
+            eprintln!("    runx <repo> make [target]        run a make target");
+            eprintln!("    runx <repo> docker [-- args]     run docker");
+            eprintln!("    runx <repo> compose [-- args]    run docker compose");
+            eprintln!("    runx <repo> bin <asset> [-- args] run a release binary");
+            2
+        }
     }
 }
 
-fn no_mode_error(target: Option<&str>) -> i32 {
-    if let Some(t) = target {
-        eprintln!("runx: error: {t:?} does not match a known file pattern");
-    } else {
-        eprintln!("runx: error: no mode or target specified");
-    }
-    eprintln!();
-    eprintln!("  Use an explicit mode:");
-    eprintln!("    runx <repo> sh <script>         run a shell script");
-    eprintln!("    runx <repo> make [target]        run a make target");
-    eprintln!("    runx <repo> docker [-- args]     run docker");
-    eprintln!("    runx <repo> compose [-- args]    run docker compose");
-    eprintln!("    runx <repo> bin <asset>          download a release binary");
-    eprintln!();
-    eprintln!("  Or use a recognizable file name (*.sh, Dockerfile*, compose*.yml)");
-    2
-}
