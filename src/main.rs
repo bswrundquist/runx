@@ -12,11 +12,11 @@ struct Cli {
     command: Option<SubCmd>,
 
     #[command(flatten)]
-    auto: AutoArgs,
+    run: RunArgs,
 }
 
 #[derive(Args)]
-struct AutoArgs {
+struct RunArgs {
     #[command(flatten)]
     flags: SharedFlags,
 
@@ -24,9 +24,13 @@ struct AutoArgs {
     #[arg()]
     repo: Option<String>,
 
-    /// Script path, target name, or asset name
+    /// Mode (sh/docker/compose/make/bin) or target (deploy.sh, Dockerfile, etc.)
     #[arg()]
-    target: Option<String>,
+    second: Option<String>,
+
+    /// Target (when second arg is a mode keyword)
+    #[arg()]
+    third: Option<String>,
 
     /// Arguments passed through to the underlying tool (after --)
     #[arg(last = true)]
@@ -35,25 +39,6 @@ struct AutoArgs {
 
 #[derive(Subcommand)]
 enum SubCmd {
-    /// Run a shell script from a git repository
-    #[command(alias = "shx")]
-    Sh(ToolArgs),
-
-    /// Run docker commands from a git repository checkout
-    #[command(alias = "dockerx")]
-    Docker(ToolArgs),
-
-    /// Run docker compose commands from a git repository checkout
-    #[command(aliases = ["dcx", "dc"])]
-    Compose(ToolArgs),
-
-    /// Run make targets from a git repository checkout
-    #[command(alias = "makex")]
-    Make(ToolArgs),
-
-    /// Download and run a release binary
-    Bin(ToolArgs),
-
     /// Update runx to the latest release
     Update(UpdateArgs),
 }
@@ -71,22 +56,6 @@ struct UpdateArgs {
     /// Print verbose output
     #[arg(long)]
     verbose: bool,
-}
-
-#[derive(Args)]
-struct ToolArgs {
-    #[command(flatten)]
-    flags: SharedFlags,
-
-    /// Repository reference: owner/repo[@ref] or full git URL
-    repo: String,
-
-    /// Script path, make target, or asset name
-    target: Option<String>,
-
-    /// Arguments passed through to the underlying tool (after --)
-    #[arg(last = true)]
-    passthrough: Vec<String>,
 }
 
 #[derive(Args, Clone)]
@@ -143,79 +112,24 @@ fn main() {
     let cli = Cli::parse();
 
     let exit_code = match cli.command {
-        Some(cmd) => run_subcommand(cmd),
-        None => run_auto(cli.auto),
+        Some(SubCmd::Update(args)) => {
+            tools::update::run(args.check, args.force, args.verbose)
+        }
+        None => run(cli.run),
     };
 
     std::process::exit(exit_code);
 }
 
-fn run_subcommand(cmd: SubCmd) -> i32 {
-    match cmd {
-        SubCmd::Sh(args) => {
-            let (flags, repo_ref) = match parse_tool_args(&args) {
-                Ok(v) => v,
-                Err(code) => return code,
-            };
-            let script = match &args.target {
-                Some(s) => s.as_str(),
-                None => {
-                    eprintln!("runx sh: error: expected <script-path>");
-                    return 2;
-                }
-            };
-            tools::shell::run(flags, repo_ref, script, &args.passthrough)
-        }
-        SubCmd::Docker(args) => {
-            let (flags, repo_ref) = match parse_tool_args(&args) {
-                Ok(v) => v,
-                Err(code) => return code,
-            };
-            tools::docker::run(flags, repo_ref, &args.passthrough)
-        }
-        SubCmd::Compose(args) => {
-            let (flags, repo_ref) = match parse_tool_args(&args) {
-                Ok(v) => v,
-                Err(code) => return code,
-            };
-            tools::compose::run(flags, repo_ref, &args.passthrough)
-        }
-        SubCmd::Make(args) => {
-            let (flags, repo_ref) = match parse_tool_args(&args) {
-                Ok(v) => v,
-                Err(code) => return code,
-            };
-            tools::make::run(flags, repo_ref, args.target.as_deref(), &args.passthrough)
-        }
-        SubCmd::Bin(args) => {
-            let (flags, repo_ref) = match parse_tool_args(&args) {
-                Ok(v) => v,
-                Err(code) => return code,
-            };
-            let asset = match &args.target {
-                Some(s) => s.as_str(),
-                None => {
-                    eprintln!("runx bin: error: expected <asset-name>");
-                    return 2;
-                }
-            };
-            tools::release::run(flags, repo_ref, asset, &args.passthrough)
-        }
-        SubCmd::Update(args) => {
-            tools::update::run(args.check, args.force, args.verbose)
-        }
-    }
-}
-
-fn run_auto(auto: AutoArgs) -> i32 {
-    let repo_str = match &auto.repo {
+fn run(args: RunArgs) -> i32 {
+    let repo_str = match &args.repo {
         Some(r) => r.as_str(),
         None => {
             eprintln!("runx: error: expected <repo[@ref]>");
             eprintln!();
-            eprintln!("Usage: runx [flags] <repo[@ref]> [target] [-- args...]");
+            eprintln!("Usage: runx [flags] <repo[@ref]> [mode|target] [target] [-- args...]");
             eprintln!();
-            eprintln!("Subcommands: sh, docker, compose, make, bin, update");
+            eprintln!("Modes: sh, docker, compose, make, bin");
             eprintln!("Run 'runx --help' for more information.");
             return 2;
         }
@@ -229,47 +143,84 @@ fn run_auto(auto: AutoArgs) -> i32 {
         }
     };
 
-    let flags = auto.flags.into_flags();
-    let mode = tools::detect_mode(auto.target.as_deref());
+    let flags = args.flags.into_flags();
 
-    if flags.verbose {
-        eprintln!("runx: auto-detected mode: {mode}");
-    }
+    match args.second.as_deref() {
+        // Explicit mode keywords
+        Some("sh" | "shx") => {
+            let script = match args.third.as_deref() {
+                Some(s) => s,
+                None => {
+                    eprintln!("runx: sh mode requires a script path");
+                    return 2;
+                }
+            };
+            tools::shell::run(flags, repo_ref, script, &args.passthrough)
+        }
+        Some("docker" | "dockerx") => {
+            tools::docker::run(flags, repo_ref, &args.passthrough)
+        }
+        Some("compose" | "dc" | "dcx") => {
+            tools::compose::run(flags, repo_ref, &args.passthrough)
+        }
+        Some("make" | "makex") => {
+            tools::make::run(flags, repo_ref, args.third.as_deref(), &args.passthrough)
+        }
+        Some("bin") => {
+            let asset = match args.third.as_deref() {
+                Some(s) => s,
+                None => {
+                    eprintln!("runx: bin mode requires an asset name");
+                    return 2;
+                }
+            };
+            tools::release::run(flags, repo_ref, asset, &args.passthrough)
+        }
 
-    match mode {
-        tools::ToolMode::Shell => {
-            let Some(script) = auto.target.as_deref() else {
-                eprintln!("runx: shell mode requires a script path");
-                return 2;
-            };
-            tools::shell::run(flags, repo_ref, script, &auto.passthrough)
+        // Auto-detect from file pattern
+        Some(target) => {
+            if let Some(mode) = tools::detect_mode(Some(target)) {
+                if flags.verbose {
+                    eprintln!("runx: auto-detected mode: {mode}");
+                }
+                match mode {
+                    tools::ToolMode::Shell => {
+                        tools::shell::run(flags, repo_ref, target, &args.passthrough)
+                    }
+                    tools::ToolMode::Docker => {
+                        tools::docker::run(flags, repo_ref, &args.passthrough)
+                    }
+                    tools::ToolMode::Compose => {
+                        tools::compose::run(flags, repo_ref, &args.passthrough)
+                    }
+                    tools::ToolMode::Release => {
+                        tools::release::run(flags, repo_ref, target, &args.passthrough)
+                    }
+                }
+            } else {
+                no_mode_error(Some(target))
+            }
         }
-        tools::ToolMode::Docker => {
-            tools::docker::run(flags, repo_ref, &auto.passthrough)
-        }
-        tools::ToolMode::Compose => {
-            tools::compose::run(flags, repo_ref, &auto.passthrough)
-        }
-        tools::ToolMode::Make => {
-            tools::make::run(flags, repo_ref, auto.target.as_deref(), &auto.passthrough)
-        }
-        tools::ToolMode::Release => {
-            let Some(asset) = auto.target.as_deref() else {
-                eprintln!("runx: release mode requires an asset name");
-                return 2;
-            };
-            tools::release::run(flags, repo_ref, asset, &auto.passthrough)
-        }
+
+        // No second arg at all
+        None => no_mode_error(None),
     }
 }
 
-fn parse_tool_args(args: &ToolArgs) -> Result<(core::Flags, core::RepoRef), i32> {
-    let repo_ref = match core::RepoRef::parse(&args.repo) {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("runx: {e}");
-            return Err(2);
-        }
-    };
-    Ok((args.flags.clone().into_flags(), repo_ref))
+fn no_mode_error(target: Option<&str>) -> i32 {
+    if let Some(t) = target {
+        eprintln!("runx: error: {t:?} does not match a known file pattern");
+    } else {
+        eprintln!("runx: error: no mode or target specified");
+    }
+    eprintln!();
+    eprintln!("  Use an explicit mode:");
+    eprintln!("    runx <repo> sh <script>         run a shell script");
+    eprintln!("    runx <repo> make [target]        run a make target");
+    eprintln!("    runx <repo> docker [-- args]     run docker");
+    eprintln!("    runx <repo> compose [-- args]    run docker compose");
+    eprintln!("    runx <repo> bin <asset>          download a release binary");
+    eprintln!();
+    eprintln!("  Or use a recognizable file name (*.sh, Dockerfile*, compose*.yml)");
+    2
 }

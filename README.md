@@ -6,10 +6,10 @@ Execute shell scripts, Makefile targets, Docker commands, and Docker Compose
 Think of it as `npx`/`uvx` for git repos.
 
 ```bash
-runx sh      acme/tools@main scripts/release.sh -- --dry-run
-runx make    acme/infra@main bootstrap
-runx docker  acme/app@main -- build -t acme/app:dev .
-runx compose acme/platform@main -- up -d
+runx acme/tools@main sh scripts/release.sh -- --dry-run
+runx acme/infra@main make bootstrap
+runx acme/app@main docker -- build -t acme/app:dev .
+runx acme/platform@main compose -- up -d
 ```
 
 ---
@@ -45,10 +45,14 @@ runx update
 
 ## Usage
 
-`runx` is a single binary with subcommands:
+```
+runx [flags] <repo[@ref]> <mode|target> [target] [-- args...]
+```
 
-| Subcommand | What it runs | Needs on host |
-|------------|-------------|---------------|
+The repo always comes first, followed by the mode or a recognizable file name:
+
+| Mode | What it runs | Needs on host |
+|------|-------------|---------------|
 | `sh` | A shell script from the repo | a shell (`sh`, `bash`, ...) |
 | `make` | A Makefile target | `make` |
 | `docker` | Docker CLI with repo as build context | Docker daemon |
@@ -58,13 +62,19 @@ runx update
 
 ### Auto-detection
 
-When no subcommand is given, `runx` infers the tool from the arguments:
+When the second argument matches a known file pattern, `runx` infers the mode:
 
 ```bash
 runx acme/tools@main scripts/release.sh        # .sh extension -> shell
-runx acme/infra@main bootstrap                  # bare word -> make target
-runx acme/infra@main                            # no target -> default make target
-runx acme/app@v1 app-darwin-arm64.tar.gz        # archive pattern -> release binary
+runx acme/tools@main deploy.bash               # .bash extension -> shell
+runx acme/app@v1 app-darwin-arm64.tar.gz       # archive pattern -> release binary
+```
+
+Bare words (like `build`, `test`) do **not** auto-detect — use an explicit mode:
+
+```bash
+runx acme/infra@main make build                # explicit make mode
+runx acme/infra@main make                      # default make target
 ```
 
 ### Repo reference syntax
@@ -123,16 +133,16 @@ runx update --force      # reinstall even if already on the latest version
 
 ```bash
 # First run: clones + materializes tree
-runx make acme/infra@main bootstrap    # ~3s
+runx acme/infra@main make bootstrap    # ~3s
 
 # Second run (same commit, within TTL): zero network
-runx make acme/infra@main bootstrap    # ~0.1s
+runx acme/infra@main make bootstrap    # ~0.1s
 ```
 
 ### Pinning
 
 ```bash
-runx --pin make acme/tools@main deploy
+runx --pin acme/tools@main make deploy
 #   runx: main -> a1b2c3d4e5f6
 #   runx: pin -> acme/tools@a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2
 ```

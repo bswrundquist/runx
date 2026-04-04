@@ -13,7 +13,6 @@ pub enum ToolMode {
     Shell,
     Docker,
     Compose,
-    Make,
     Release,
 }
 
@@ -31,23 +30,23 @@ static RELEASE_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 /// Auto-detect the tool mode from the argument (the script/file/target name).
-pub fn detect_mode(arg: Option<&str>) -> ToolMode {
-    let Some(arg) = arg else {
-        return ToolMode::Make;
-    };
+/// Returns `None` when the argument does not match any known file pattern.
+pub fn detect_mode(arg: Option<&str>) -> Option<ToolMode> {
+    let arg = arg?;
 
     if SHELL_RE.is_match(arg) {
-        ToolMode::Shell
+        Some(ToolMode::Shell)
     } else if DOCKERFILE_RE.is_match(arg) {
-        ToolMode::Docker
+        Some(ToolMode::Docker)
     } else if COMPOSE_RE.is_match(arg) {
-        ToolMode::Compose
+        Some(ToolMode::Compose)
     } else if RELEASE_RE.is_match(arg) {
-        ToolMode::Release
+        Some(ToolMode::Release)
     } else {
-        ToolMode::Make
+        None
     }
 }
+
 
 impl std::fmt::Display for ToolMode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -55,7 +54,6 @@ impl std::fmt::Display for ToolMode {
             Self::Shell => write!(f, "shell"),
             Self::Docker => write!(f, "docker"),
             Self::Compose => write!(f, "compose"),
-            Self::Make => write!(f, "make"),
             Self::Release => write!(f, "release"),
         }
     }
@@ -67,27 +65,27 @@ mod tests {
 
     #[test]
     fn detect_shell() {
-        assert_eq!(detect_mode(Some("deploy.sh")), ToolMode::Shell);
-        assert_eq!(detect_mode(Some("run.bash")), ToolMode::Shell);
-        assert_eq!(detect_mode(Some("scripts/setup.sh")), ToolMode::Shell);
-        assert_eq!(detect_mode(Some("scripts/anything")), ToolMode::Shell);
-        assert_eq!(detect_mode(Some("DEPLOY.SH")), ToolMode::Shell);
+        assert_eq!(detect_mode(Some("deploy.sh")), Some(ToolMode::Shell));
+        assert_eq!(detect_mode(Some("run.bash")), Some(ToolMode::Shell));
+        assert_eq!(detect_mode(Some("scripts/setup.sh")), Some(ToolMode::Shell));
+        assert_eq!(detect_mode(Some("scripts/anything")), Some(ToolMode::Shell));
+        assert_eq!(detect_mode(Some("DEPLOY.SH")), Some(ToolMode::Shell));
     }
 
     #[test]
     fn detect_docker() {
-        assert_eq!(detect_mode(Some("Dockerfile")), ToolMode::Docker);
-        assert_eq!(detect_mode(Some("Dockerfile.prod")), ToolMode::Docker);
+        assert_eq!(detect_mode(Some("Dockerfile")), Some(ToolMode::Docker));
+        assert_eq!(detect_mode(Some("Dockerfile.prod")), Some(ToolMode::Docker));
     }
 
     #[test]
     fn detect_compose() {
-        assert_eq!(detect_mode(Some("compose.yml")), ToolMode::Compose);
-        assert_eq!(detect_mode(Some("compose.yaml")), ToolMode::Compose);
-        assert_eq!(detect_mode(Some("docker-compose.yml")), ToolMode::Compose);
+        assert_eq!(detect_mode(Some("compose.yml")), Some(ToolMode::Compose));
+        assert_eq!(detect_mode(Some("compose.yaml")), Some(ToolMode::Compose));
+        assert_eq!(detect_mode(Some("docker-compose.yml")), Some(ToolMode::Compose));
         assert_eq!(
             detect_mode(Some("docker-compose.prod.yml")),
-            ToolMode::Compose
+            Some(ToolMode::Compose)
         );
     }
 
@@ -95,31 +93,81 @@ mod tests {
     fn detect_release() {
         assert_eq!(
             detect_mode(Some("tool-darwin-arm64.tar.gz")),
-            ToolMode::Release
+            Some(ToolMode::Release)
         );
         assert_eq!(
             detect_mode(Some("tool-linux-amd64")),
-            ToolMode::Release
+            Some(ToolMode::Release)
         );
         assert_eq!(
             detect_mode(Some("app-x86_64.zip")),
-            ToolMode::Release
+            Some(ToolMode::Release)
         );
         assert_eq!(
             detect_mode(Some("thing-aarch64")),
-            ToolMode::Release
+            Some(ToolMode::Release)
         );
         assert_eq!(
             detect_mode(Some("app.exe")),
-            ToolMode::Release
+            Some(ToolMode::Release)
         );
     }
 
     #[test]
-    fn detect_make_default() {
-        assert_eq!(detect_mode(None), ToolMode::Make);
-        assert_eq!(detect_mode(Some("build")), ToolMode::Make);
-        assert_eq!(detect_mode(Some("test")), ToolMode::Make);
-        assert_eq!(detect_mode(Some("deploy")), ToolMode::Make);
+    fn detect_unknown_returns_none() {
+        assert_eq!(detect_mode(None), None);
+        assert_eq!(detect_mode(Some("build")), None);
+        assert_eq!(detect_mode(Some("test")), None);
+        assert_eq!(detect_mode(Some("deploy")), None);
+    }
+
+    #[test]
+    fn detect_mode_keywords_return_none() {
+        // Mode keywords are handled by the CLI keyword match, not detect_mode.
+        assert_eq!(detect_mode(Some("sh")), None);
+        assert_eq!(detect_mode(Some("make")), None);
+        assert_eq!(detect_mode(Some("docker")), None);
+        assert_eq!(detect_mode(Some("compose")), None);
+        assert_eq!(detect_mode(Some("bin")), None);
+    }
+
+    #[test]
+    fn detect_empty_string_returns_none() {
+        assert_eq!(detect_mode(Some("")), None);
+    }
+
+    #[test]
+    fn detect_near_misses_return_none() {
+        assert_eq!(detect_mode(Some("deploy.shell")), None);  // not .sh
+        assert_eq!(detect_mode(Some("Dockerfiles")), None);   // plural
+        assert_eq!(detect_mode(Some("compose.json")), None);  // wrong ext
+        assert_eq!(detect_mode(Some("Makefile")), None);       // not a pattern match target
+        assert_eq!(detect_mode(Some("my-script")), None);      // no extension
+    }
+
+    #[test]
+    fn detect_docker_case_insensitive() {
+        assert_eq!(detect_mode(Some("dockerfile")), Some(ToolMode::Docker));
+        assert_eq!(detect_mode(Some("DOCKERFILE")), Some(ToolMode::Docker));
+        assert_eq!(detect_mode(Some("dockerfile.dev")), Some(ToolMode::Docker));
+    }
+
+    #[test]
+    fn detect_release_additional_patterns() {
+        assert_eq!(detect_mode(Some("tool.tgz")), Some(ToolMode::Release));
+        assert_eq!(detect_mode(Some("app-windows-amd64.zip")), Some(ToolMode::Release));
+    }
+
+    #[test]
+    fn detect_compose_case_insensitive() {
+        assert_eq!(detect_mode(Some("COMPOSE.YML")), Some(ToolMode::Compose));
+        assert_eq!(detect_mode(Some("DOCKER-COMPOSE.YAML")), Some(ToolMode::Compose));
+        assert_eq!(detect_mode(Some("Compose.Yaml")), Some(ToolMode::Compose));
+    }
+
+    #[test]
+    fn detect_shell_nested_scripts_path() {
+        assert_eq!(detect_mode(Some("scripts/sub/deep.sh")), Some(ToolMode::Shell));
+        assert_eq!(detect_mode(Some("scripts/setup")), Some(ToolMode::Shell));
     }
 }
