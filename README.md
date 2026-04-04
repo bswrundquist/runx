@@ -5,12 +5,6 @@ Execute shell scripts, Makefile targets, Docker commands, and Docker Compose
 
 Think of it as `npx`/`uvx` for git repos.
 
----
-
-## Usage
-
-`runx` is a single binary with subcommands:
-
 ```bash
 runx sh      acme/tools@main scripts/release.sh -- --dry-run
 runx make    acme/infra@main bootstrap
@@ -18,15 +12,40 @@ runx docker  acme/app@main -- build -t acme/app:dev .
 runx compose acme/platform@main -- up -d
 ```
 
-Auto-detection also works — `runx` infers the tool from the arguments:
+---
+
+## Install
 
 ```bash
-runx acme/tools@main scripts/release.sh        # .sh extension → shell
-runx acme/infra@main bootstrap                  # bare word → make target
-runx acme/infra@main                            # no target → default make target
+curl -fsSL https://raw.githubusercontent.com/bswrundquist/runx/main/install.sh | sh
 ```
 
-### Subcommands
+Or with options:
+
+```bash
+# Install a specific version
+RUNX_VERSION=v0.1.0 curl -fsSL https://raw.githubusercontent.com/bswrundquist/runx/main/install.sh | sh
+
+# Install to a custom directory
+RUNX_INSTALL_DIR=~/.local/bin curl -fsSL https://raw.githubusercontent.com/bswrundquist/runx/main/install.sh | sh
+```
+
+### Other methods
+
+```bash
+# From source (requires Nix)
+git clone https://github.com/bswrundquist/runx && cd runx
+make build && make install
+
+# Update an existing installation
+runx update
+```
+
+---
+
+## Usage
+
+`runx` is a single binary with subcommands:
 
 | Subcommand | What it runs | Needs on host |
 |------------|-------------|---------------|
@@ -35,27 +54,18 @@ runx acme/infra@main                            # no target → default make tar
 | `docker` | Docker CLI with repo as build context | Docker daemon |
 | `compose` | Docker Compose from the repo | Docker daemon + Compose |
 | `bin` | A GitHub release binary | network access |
-| `update` | Self-update runx to the latest release | network access |
+| `update` | Self-update to the latest release | network access |
 
-### Flags
+### Auto-detection
 
-| Flag | Description |
-|------|-------------|
-| `--refresh` | Re-fetch from remote even if a cached ref exists |
-| `--offline` | Disable network access; fail if ref is not cached |
-| `--cache-dir <dir>` | Override cache root (default: `~/.cache/runx`) |
-| `--yes` | Skip interactive trust prompt (this run only) |
-| `--trust` | Permanently trust this repo (implies `--yes`) |
-| `--pin` | Print the pinned-commit command after resolving a mutable ref |
-| `--commit <sha>` | Override ref resolution with a specific commit SHA |
-| `--verbose` | Print verbose output |
+When no subcommand is given, `runx` infers the tool from the arguments:
 
-#### Update flags
-
-| Flag | Description |
-|------|-------------|
-| `--check` | Check if an update is available without installing |
-| `--force` | Reinstall even if already on the latest version |
+```bash
+runx acme/tools@main scripts/release.sh        # .sh extension -> shell
+runx acme/infra@main bootstrap                  # bare word -> make target
+runx acme/infra@main                            # no target -> default make target
+runx acme/app@v1 app-darwin-arm64.tar.gz        # archive pattern -> release binary
+```
 
 ### Repo reference syntax
 
@@ -70,45 +80,25 @@ runx acme/infra@main                            # no target → default make tar
 
 `owner/repo` shorthand maps to GitHub. For other hosts, use a full URL.
 
----
+### Flags
 
-## Developing
+| Flag | Description |
+|------|-------------|
+| `--refresh` | Re-fetch from remote even if a cached ref exists |
+| `--offline` | Disable network access; fail if ref is not cached |
+| `--cache-dir <dir>` | Override cache root (default: `~/.cache/runx`) |
+| `--yes` | Skip interactive trust prompt (this run only) |
+| `--trust` | Permanently trust this repo (implies `--yes`) |
+| `--pin` | Print the pinned-commit command after resolving a mutable ref |
+| `--commit <sha>` | Override ref resolution with a specific commit SHA |
+| `--verbose` | Print verbose output |
 
-### Prerequisites
-
-- [Nix](https://nixos.org/) with flakes enabled
-- [direnv](https://direnv.net/) (recommended)
-
-The dev shell provides Rust (cargo, rustc, clippy, rustfmt), GNU Make, and git.
-On macOS it also supplies `libiconv` for linking.
-
-### Setup
-
-```bash
-git clone https://github.com/bswr/runx
-cd runx
-direnv allow          # or: nix develop
-```
-
-### Build
+### Self-update
 
 ```bash
-make build            # release binary → ./bin/runx
-```
-
-### Tests
-
-```bash
-make unit-tests       # run all unit + integration tests (cargo test)
-make lint             # cargo clippy
-make fmt              # cargo fmt --check
-make smoke-tests      # end-to-end tests against real GitHub repos (requires network + git)
-```
-
-### Install
-
-```bash
-make install          # copies bin/runx to /usr/local/bin
+runx update              # download and install the latest release
+runx update --check      # check if an update is available
+runx update --force      # reinstall even if already on the latest version
 ```
 
 ---
@@ -119,10 +109,11 @@ make install          # copies bin/runx to /usr/local/bin
 ~/.cache/runx/
   repos/<urlhash>/        # bare git repos (one per remote)
   trees/<urlhash>/<sha>/  # immutable materialized checkouts
+  releases/<urlhash>/     # downloaded release binaries
   trust.json              # permanently trusted repos
 ```
 
-1. **Ref resolution** — branches/tags resolve to a commit SHA. The SHA is always printed.
+1. **Ref resolution** — branches/tags resolve to a commit SHA (always printed).
 2. **Bare repo cache** — `git clone --bare` on first use, `git fetch` on subsequent mutable-ref runs. Immutable refs skip the fetch.
 3. **Ref TTL cache** — resolved `(ref -> commit)` mappings cached for 5 minutes per bare repo.
 4. **Immutable tree** — `git archive | tar -x` into `trees/<urlhash>/<sha>/`. Never written to.
@@ -167,6 +158,31 @@ runx does **not** sandbox execution, verify signatures, or audit script content.
 |----------|---------|-------------|
 | `RUNX_CACHE_DIR` | `~/.cache/runx` | Override the cache root |
 | `RUNX_REPO` | `bswrundquist/runx` | GitHub `owner/repo` used for self-update |
+| `RUNX_INSTALL_DIR` | `/usr/local/bin` | Install directory (used by `install.sh`) |
+| `RUNX_VERSION` | latest | Specific version to install (used by `install.sh`) |
+
+---
+
+## Developing
+
+### Prerequisites
+
+- [Nix](https://nixos.org/) with flakes enabled
+- [direnv](https://direnv.net/) (recommended)
+
+The dev shell provides Rust (cargo, rustc, clippy, rustfmt), GNU Make, and git.
+On macOS it also supplies `libiconv` for linking.
+
+### Build & Test
+
+```bash
+make build            # release binary -> ./bin/runx
+make unit-tests       # cargo test (rebuilds if sources changed)
+make smoke-tests      # end-to-end tests against real GitHub repos
+make lint             # cargo clippy
+make fmt              # cargo fmt --check
+make install          # copies bin/runx to /usr/local/bin
+```
 
 ---
 
