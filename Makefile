@@ -220,7 +220,8 @@ release-patch release-minor release-major: unit-tests
 	@git add Cargo.toml Cargo.lock
 	@git commit -m "release: v$(NEXT_VERSION)"
 	@git tag "v$(NEXT_VERSION)"
-	@git push origin main "v$(NEXT_VERSION)"
+	@git push origin main
+	@git push origin "v$(NEXT_VERSION)"
 	@echo "Pushed v$(NEXT_VERSION) — release workflow started"
 
 # Run all smoke tests
