@@ -51,7 +51,7 @@ enum SubCmd {
     #[command(alias = "makex")]
     Make(ToolArgs),
 
-    /// Download and run a release binary from GitHub
+    /// Download and run a release binary
     Bin(ToolArgs),
 
     /// Update runx to the latest release

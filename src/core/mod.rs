@@ -3,6 +3,7 @@ pub mod engine;
 pub mod error;
 pub mod exec;
 pub mod git;
+pub mod host;
 pub mod repo;
 pub mod trust;
 pub mod workspace;

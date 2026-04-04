@@ -22,6 +22,12 @@ static SHORTHAND_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^([a-zA-Z0-9][a-zA-Z0-9_-]*)/([a-zA-Z0-9][a-zA-Z0-9_.-]*)(?:@(.+))?$").unwrap()
 });
 
+// host.tld/path... where host contains a dot and path has 2+ segments.
+// Captures: host, full path (owner/repo or group/sub/project), optional @ref.
+static HOST_SHORTHAND_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^([a-zA-Z0-9][a-zA-Z0-9._-]*\.[a-zA-Z]{2,})/([a-zA-Z0-9][a-zA-Z0-9_./-]*/[a-zA-Z0-9][a-zA-Z0-9_.-]*)(?:@(.+))?$").unwrap()
+});
+
 static FULL_SHA_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[0-9a-f]{40}$").unwrap());
 
@@ -29,7 +35,8 @@ impl RepoRef {
     /// Parse a repo reference string.
     ///
     /// Supported formats:
-    ///   owner/repo[@ref]               GitHub shorthand
+    ///   owner/repo[@ref]               Shorthand (default host, see RUNX_DEFAULT_HOST)
+    ///   host.tld/owner/repo[@ref]      Host-qualified shorthand
     ///   https://host/path[.git][@ref]  Full HTTPS URL
     ///   git@host:path[.git][@ref]      SSH URL
     pub fn parse(s: &str) -> Result<Self, RunxError> {
@@ -45,14 +52,26 @@ impl RepoRef {
     }
 
     fn parse_shorthand(s: &str) -> Result<Self, RunxError> {
+        // Try host-qualified form first: host.tld/owner/repo[@ref]
+        if let Some(caps) = HOST_SHORTHAND_RE.captures(s) {
+            let host = &caps[1];
+            let path = &caps[2];
+            let canonical = format!("https://{host}/{path}");
+            let ref_name = caps.get(3).map(|m| m.as_str()).unwrap_or("");
+            return Ok(Self::make(canonical, ref_name));
+        }
+
+        // Bare owner/repo[@ref] — use RUNX_DEFAULT_HOST (default: github.com).
         let caps = SHORTHAND_RE.captures(s).ok_or_else(|| {
             RunxError::InvalidRepoRef(format!(
-                "{s:?}: expected owner/repo[@ref] or a full git URL"
+                "{s:?}: expected owner/repo[@ref], host/owner/repo[@ref], or a full git URL"
             ))
         })?;
+        let default_host =
+            std::env::var("RUNX_DEFAULT_HOST").unwrap_or_else(|_| "github.com".to_string());
         let canonical = format!(
-            "https://github.com/{}/{}",
-            &caps[1], &caps[2]
+            "https://{}/{}/{}",
+            default_host, &caps[1], &caps[2]
         );
         let ref_name = caps.get(3).map(|m| m.as_str()).unwrap_or("");
         Ok(Self::make(canonical, ref_name))
@@ -293,6 +312,34 @@ mod tests {
         let r = RepoRef::parse("http://github.com/owner/repo").unwrap();
         assert_eq!(r.canonical_url, "https://github.com/owner/repo");
         assert_eq!(r.clone_url, "http://github.com/owner/repo");
+    }
+
+    #[test]
+    fn parse_host_qualified_gitlab() {
+        let r = RepoRef::parse("gitlab.com/group/project@v1").unwrap();
+        assert_eq!(r.canonical_url, "https://gitlab.com/group/project");
+        assert_eq!(r.ref_name, "v1");
+    }
+
+    #[test]
+    fn parse_host_qualified_bitbucket() {
+        let r = RepoRef::parse("bitbucket.org/team/repo").unwrap();
+        assert_eq!(r.canonical_url, "https://bitbucket.org/team/repo");
+        assert_eq!(r.ref_name, "");
+    }
+
+    #[test]
+    fn parse_host_qualified_selfhosted() {
+        let r = RepoRef::parse("git.corp.com/org/tool@main").unwrap();
+        assert_eq!(r.canonical_url, "https://git.corp.com/org/tool");
+        assert_eq!(r.ref_name, "main");
+    }
+
+    #[test]
+    fn parse_host_qualified_gitlab_subgroup() {
+        let r = RepoRef::parse("gitlab.com/group/sub/project@develop").unwrap();
+        assert_eq!(r.canonical_url, "https://gitlab.com/group/sub/project");
+        assert_eq!(r.ref_name, "develop");
     }
 
     #[test]
