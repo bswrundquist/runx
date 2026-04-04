@@ -5,7 +5,8 @@ BINARY   := runx
         smoke-test-sh smoke-test-make smoke-test-docker smoke-test-compose \
         smoke-test-auto smoke-tests \
         smoke-test-bin-bare smoke-test-bin-tar smoke-test-bin-cached \
-        smoke-test-update-check
+        smoke-test-update-check \
+        release-patch release-minor release-major
 
 all: build
 
@@ -191,6 +192,36 @@ smoke-test-update-check: $(BINDIR)/$(BINARY)
 	@echo "==> smoke: update --check"
 	$(RUNX) update --check 2>&1 | grep -qE '(up to date|update available|no releases found)'
 	@echo "    PASS"
+
+# ---------------------------------------------------------------------------
+# Release targets — bump version, commit, tag, push to trigger CI release.
+# Usage: make release-patch   (0.1.0 → 0.1.1)
+#        make release-minor   (0.1.0 → 0.2.0)
+#        make release-major   (0.1.0 → 1.0.0)
+# ---------------------------------------------------------------------------
+
+CURRENT_VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+MAJOR := $(word 1,$(subst ., ,$(CURRENT_VERSION)))
+MINOR := $(word 2,$(subst ., ,$(CURRENT_VERSION)))
+PATCH := $(word 3,$(subst ., ,$(CURRENT_VERSION)))
+
+release-patch: NEXT_VERSION = $(MAJOR).$(MINOR).$(shell echo $$(($(PATCH)+1)))
+release-minor: NEXT_VERSION = $(MAJOR).$(shell echo $$(($(MINOR)+1))).0
+release-major: NEXT_VERSION = $(shell echo $$(($(MAJOR)+1))).0.0
+
+release-patch release-minor release-major: unit-tests
+	@if [ -n "$$(git status --porcelain)" ]; then \
+		echo "error: working tree is dirty — commit or stash changes before releasing"; \
+		exit 1; \
+	fi
+	@echo "Releasing v$(NEXT_VERSION) (was v$(CURRENT_VERSION))"
+	@sed -i '' 's/^version = "$(CURRENT_VERSION)"/version = "$(NEXT_VERSION)"/' Cargo.toml
+	@cargo check --quiet 2>/dev/null
+	@git add Cargo.toml Cargo.lock
+	@git commit -m "release: v$(NEXT_VERSION)"
+	@git tag "v$(NEXT_VERSION)"
+	@git push origin main "v$(NEXT_VERSION)"
+	@echo "Pushed v$(NEXT_VERSION) — release workflow started"
 
 # Run all smoke tests
 smoke-tests: smoke-test-sh smoke-test-make smoke-test-docker smoke-test-compose \
