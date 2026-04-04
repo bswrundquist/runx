@@ -6,6 +6,9 @@ BINARY   := runx
         smoke-test-auto smoke-tests \
         smoke-test-bin-bare smoke-test-bin-tar smoke-test-bin-cached \
         smoke-test-update-check \
+        smoke-test-gitlab-make smoke-test-gitlab-https \
+        smoke-test-gitlab-bin smoke-test-gitlab-bin-cached \
+        smoke-test-bitbucket-clone \
         release-patch release-minor release-major
 
 all: build
@@ -44,10 +47,10 @@ purge-cache:
 	@echo "Cache purged."
 
 # ---------------------------------------------------------------------------
-# Smoke tests — exercise each tool mode against real GitHub repos.
+# Smoke tests — exercise each tool mode against real git repos.
 # Requirements: git, sh, make on PATH. Docker targets need Docker running.
 # All trust prompts are suppressed with --yes.
-# First run clones from GitHub; subsequent runs hit the local cache.
+# First run clones from the remote; subsequent runs hit the local cache.
 # ---------------------------------------------------------------------------
 
 RUNX := ./$(BINDIR)/$(BINARY)
@@ -194,6 +197,58 @@ smoke-test-update-check: $(BINDIR)/$(BINARY)
 	@echo "    PASS"
 
 # ---------------------------------------------------------------------------
+# Multi-host smoke tests — verify GitLab and Bitbucket support.
+# These test the host-qualified shorthand, full HTTPS URLs,
+# and the GitLab release API integration.
+# ---------------------------------------------------------------------------
+
+# smoke-test-gitlab-make
+# Repo:   gitlab.com/gitlab-org/cli — the official GitLab CLI (glab)
+# What:   "make help" prints available make targets; grep confirms output
+# Mode:   host-qualified shorthand → GitLab
+smoke-test-gitlab-make: $(BINDIR)/$(BINARY)
+	@echo "==> smoke: gitlab shorthand (gitlab-org/cli — make help)"
+	$(RUNX) --yes gitlab.com/gitlab-org/cli@v1.46.1 help 2>&1 | grep -q 'clean'
+	@echo "    PASS"
+
+# smoke-test-gitlab-https
+# Repo:   gitlab.com/gitlab-org/gitlab-runner — the official GitLab Runner
+# What:   "make version" prints version info via full HTTPS URL
+# Mode:   full HTTPS URL → GitLab
+smoke-test-gitlab-https: $(BINDIR)/$(BINARY)
+	@echo "==> smoke: gitlab HTTPS (gitlab-runner — make version)"
+	$(RUNX) --yes https://gitlab.com/gitlab-org/gitlab-runner@v17.4.0 version 2>&1 | grep -q 'Current version'
+	@echo "    PASS"
+
+# smoke-test-gitlab-bin
+# Repo:   gitlab.com/gitlab-org/cli — glab releases with binary assets
+# Asset:  glab_1.46.1_macOS_arm64.tar.gz
+# What:   downloads via GitLab release API, extracts, runs "glab --version"
+# Mode:   host-qualified shorthand + release binary
+smoke-test-gitlab-bin: $(BINDIR)/$(BINARY)
+	@echo "==> smoke: gitlab bin (gitlab-org/cli — release binary, glab --version)"
+	$(RUNX) bin --yes gitlab.com/gitlab-org/cli@v1.46.1 glab_1.46.1_macOS_arm64.tar.gz -- --version 2>&1 | grep -q '1.46.1'
+	@echo "    PASS"
+
+# smoke-test-gitlab-bin-cached
+# Re-run glab with --offline to verify the cache from smoke-test-gitlab-bin
+smoke-test-gitlab-bin-cached: smoke-test-gitlab-bin
+	@echo "==> smoke: gitlab bin (gitlab-org/cli — cached, --offline)"
+	$(RUNX) bin --yes --offline gitlab.com/gitlab-org/cli@v1.46.1 glab_1.46.1_macOS_arm64.tar.gz -- --version 2>&1 | grep -q '1.46.1'
+	@echo "    PASS"
+
+# smoke-test-bitbucket-clone
+# Repo:   bitbucket.org/snakemake/snakemake — workflow management system
+# What:   clones via host-qualified shorthand, verifies ref resolution
+#         (no Makefile in this version, so we verify the clone + checkout
+#          succeeded by checking that runx printed the resolved commit)
+# Mode:   host-qualified shorthand → Bitbucket
+smoke-test-bitbucket-clone: $(BINDIR)/$(BINARY)
+	@echo "==> smoke: bitbucket shorthand (snakemake — clone + ref resolution)"
+	$(RUNX) --verbose --yes bitbucket.org/snakemake/snakemake@v2.5 2>&1 | grep -q 'auto-detected mode:'
+	@echo "    PASS"
+
+# ---------------------------------------------------------------------------
 # Release targets — bump version, commit, tag, push to trigger CI release.
 # Usage: make release-patch   (0.1.0 → 0.1.1)
 #        make release-minor   (0.1.0 → 0.2.0)
@@ -231,5 +286,8 @@ smoke-tests: smoke-test-sh smoke-test-make smoke-test-docker smoke-test-compose 
              smoke-test-auto-make smoke-test-auto-make-default \
              smoke-test-auto-compose smoke-test-auto-docker-compose \
              smoke-test-bin-bare smoke-test-bin-tar smoke-test-bin-cached \
-             smoke-test-update-check
+             smoke-test-update-check \
+             smoke-test-gitlab-make smoke-test-gitlab-https \
+             smoke-test-gitlab-bin smoke-test-gitlab-bin-cached \
+             smoke-test-bitbucket-clone
 	@echo "==> All smoke tests passed."
