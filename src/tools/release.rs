@@ -1,9 +1,10 @@
 use crate::core::{Cache, Flags, RepoRef, RunxError, TrustStore};
+use crate::core::host::{self, HostKind};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-/// Download and run a release binary from GitHub.
+/// Download and run a release binary from a git host.
 pub fn run(flags: Flags, repo_ref: RepoRef, asset_name: &str, args: &[String]) -> i32 {
     if repo_ref.ref_name.is_empty() {
         eprintln!("runx: release mode requires a tag/ref, e.g. owner/repo@v1.0");
@@ -78,30 +79,32 @@ pub fn run(flags: Flags, repo_ref: RepoRef, asset_name: &str, args: &[String]) -
     }
 }
 
-/// Download a release asset from GitHub.
+/// Download a release asset from a git host (GitHub, GitLab, or generic).
 fn download_release(
     repo_ref: &RepoRef,
     asset_name: &str,
     release_dir: &Path,
     flags: &Flags,
 ) -> Result<(), RunxError> {
-    let (owner, repo) = parse_owner_repo(&repo_ref.canonical_url)?;
+    let (host_name, path) = parse_host_and_path(&repo_ref.canonical_url)?;
+    let kind = host::detect(&host_name);
     let tag = &repo_ref.ref_name;
 
-    // Try gh first (handles auth for private repos), fall back to curl.
-    let json = try_gh_api(&owner, &repo, tag)
-        .or_else(|_| try_curl_api(&owner, &repo, tag))?;
-
-    let release: serde_json::Value = serde_json::from_str(&json)
-        .map_err(|e| RunxError::Release(format!("parsing release JSON: {e}")))?;
-
-    let download_url = release["assets"]
-        .as_array()
-        .and_then(|assets| assets.iter().find(|a| a["name"].as_str() == Some(asset_name)))
-        .and_then(|a| a["browser_download_url"].as_str())
-        .ok_or_else(|| {
-            RunxError::Release(format!("asset {asset_name:?} not found in release {tag}"))
-        })?;
+    let download_url = match kind {
+        HostKind::GitHub | HostKind::GitLab => {
+            let api_url = host::release_api_url(kind, &host_name, &path, tag)
+                .expect("GitHub/GitLab always returns Some");
+            let json = fetch_release_json(&api_url, kind)?;
+            let release: serde_json::Value = serde_json::from_str(&json)
+                .map_err(|e| RunxError::Release(format!("parsing release JSON: {e}")))?;
+            host::extract_asset_url(kind, &release, asset_name).ok_or_else(|| {
+                RunxError::Release(format!("asset {asset_name:?} not found in release {tag}"))
+            })?
+        }
+        HostKind::Generic => {
+            host::direct_download_url(&repo_ref.canonical_url, tag, asset_name)
+        }
+    };
 
     if flags.verbose {
         eprintln!("runx: downloading {download_url}");
@@ -110,68 +113,53 @@ fn download_release(
     fs::create_dir_all(release_dir)?;
 
     if asset_name.ends_with(".tar.gz") || asset_name.ends_with(".tgz") {
-        download_and_extract_tar(download_url, release_dir)?;
+        download_and_extract_tar(&download_url, release_dir)?;
     } else if asset_name.ends_with(".zip") {
-        download_and_extract_zip(download_url, release_dir)?;
+        download_and_extract_zip(&download_url, release_dir)?;
     } else {
         // Bare binary.
-        download_file(download_url, &release_dir.join(asset_name))?;
+        download_file(&download_url, &release_dir.join(asset_name))?;
     }
 
     Ok(())
 }
 
-fn parse_owner_repo(canonical_url: &str) -> Result<(String, String), RunxError> {
-    // canonical_url is like "https://github.com/owner/repo"
+/// Extract (host, path) from a canonical URL like "https://github.com/owner/repo".
+fn parse_host_and_path(canonical_url: &str) -> Result<(String, String), RunxError> {
     let rest = canonical_url
         .strip_prefix("https://")
-        .ok_or_else(|| RunxError::Release(format!("cannot parse owner/repo from {canonical_url}")))?;
+        .ok_or_else(|| RunxError::Release(format!("cannot parse host from {canonical_url}")))?;
 
     let (host, path) = rest.split_once('/').ok_or_else(|| {
-        RunxError::Release(format!("cannot parse owner/repo from {canonical_url}"))
+        RunxError::Release(format!("cannot parse host from {canonical_url}"))
     })?;
 
-    if host != "github.com" {
+    if host.is_empty() || path.is_empty() {
         return Err(RunxError::Release(format!(
-            "release downloads are only supported for github.com repos, got {host:?}"
+            "cannot parse host/path from {canonical_url}"
         )));
     }
 
-    let (owner, repo) = path.split_once('/').ok_or_else(|| {
-        RunxError::Release(format!("cannot parse owner/repo from {canonical_url}"))
-    })?;
-
-    if owner.is_empty() || repo.is_empty() || repo.contains('/') {
-        return Err(RunxError::Release(format!(
-            "cannot parse owner/repo from {canonical_url}"
-        )));
-    }
-
-    Ok((owner.to_string(), repo.to_string()))
+    Ok((host.to_string(), path.to_string()))
 }
 
-fn try_gh_api(owner: &str, repo: &str, tag: &str) -> Result<String, RunxError> {
-    let output = Command::new("gh")
-        .args(["api", &format!("repos/{owner}/{repo}/releases/tags/{tag}")])
-        .output()
-        .map_err(|e| RunxError::Release(format!("gh: {e}")))?;
-    if !output.status.success() {
-        return Err(RunxError::Release("gh api failed".to_string()));
+/// Fetch release metadata JSON from a host API using curl.
+fn fetch_release_json(api_url: &str, kind: HostKind) -> Result<String, RunxError> {
+    let headers = host::release_headers(kind);
+    let mut args = vec!["-sfL".to_string()];
+    for h in &headers {
+        args.push("-H".to_string());
+        args.push(h.clone());
     }
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
-}
+    args.push(api_url.to_string());
 
-fn try_curl_api(owner: &str, repo: &str, tag: &str) -> Result<String, RunxError> {
-    let url = format!(
-        "https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}"
-    );
     let output = Command::new("curl")
-        .args(["-sfL", "-H", "Accept: application/vnd.github+json", &url])
+        .args(&args)
         .output()
         .map_err(|e| RunxError::Release(format!("curl: {e}")))?;
     if !output.status.success() {
         return Err(RunxError::Release(format!(
-            "GitHub API request failed for {url}"
+            "release API request failed for {api_url}"
         )));
     }
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -254,6 +242,37 @@ fn find_executable(release_dir: &Path, asset_name: &str) -> Result<std::path::Pa
     let stem_path = release_dir.join(stem);
     if stem_path.is_file() {
         return Ok(stem_path);
+    }
+
+    // Check one level deep (archives often have a top-level dir like bin/).
+    for entry in fs::read_dir(release_dir)? {
+        let entry = entry?;
+        if entry.path().is_dir() {
+            let nested_stem = entry.path().join(stem);
+            if nested_stem.is_file() {
+                return Ok(nested_stem);
+            }
+            // Also try without the version/platform suffix — many tools
+            // name the binary simply (e.g. "glab" inside "glab_1.0_os_arch/bin/").
+            // Look for an extensionless executable in the subdirectory.
+            if let Ok(sub_entries) = fs::read_dir(entry.path()) {
+                for se in sub_entries.filter_map(|e| e.ok()) {
+                    if !se.path().is_file() {
+                        continue;
+                    }
+                    let name = se.file_name();
+                    let name = name.to_string_lossy();
+                    if !name.contains('.') && !name.starts_with('_') && !name.starts_with('.') {
+                        if let Ok(meta) = se.metadata() {
+                            let mode = meta.permissions().mode();
+                            if mode & 0o111 != 0 {
+                                return Ok(se.path());
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // Collect all regular files in the directory.

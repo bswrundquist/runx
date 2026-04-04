@@ -214,21 +214,6 @@ fn compare_versions(a: &str, b: &str) -> Ordering {
 // ---------------------------------------------------------------------------
 
 fn fetch_latest_release(owner: &str, repo: &str) -> Result<String, RunxError> {
-    try_gh_latest(owner, repo).or_else(|_| try_curl_latest(owner, repo))
-}
-
-fn try_gh_latest(owner: &str, repo: &str) -> Result<String, RunxError> {
-    let output = Command::new("gh")
-        .args(["api", &format!("repos/{owner}/{repo}/releases/latest")])
-        .output()
-        .map_err(|e| RunxError::Update(format!("gh: {e}")))?;
-    if !output.status.success() {
-        return Err(RunxError::Update("gh api failed".to_string()));
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
-}
-
-fn try_curl_latest(owner: &str, repo: &str) -> Result<String, RunxError> {
     let url = format!("https://api.github.com/repos/{owner}/{repo}/releases/latest");
     let output = Command::new("curl")
         .args(["-sfL", "-H", "Accept: application/vnd.github+json", &url])

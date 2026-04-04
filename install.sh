@@ -51,15 +51,8 @@ resolve_version() {
         return
     fi
 
-    # Try gh first (handles auth / rate limits), fall back to curl.
-    if command -v gh >/dev/null 2>&1; then
-        VERSION=$(gh api "repos/${REPO}/releases/latest" --jq '.tag_name' 2>/dev/null) || true
-    fi
-
-    if [ -z "$VERSION" ]; then
-        VERSION=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
-            | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"//;s/".*//')
-    fi
+    VERSION=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
+        | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"//;s/".*//')
 
     [ -n "$VERSION" ] || err "could not determine latest version (no releases found for ${REPO})"
 }
@@ -70,12 +63,7 @@ install_binary() {
     ASSET_BASE="${BINARY}-${OS}-${ARCH}"
 
     # Fetch release metadata to find the right asset.
-    if command -v gh >/dev/null 2>&1; then
-        RELEASE_JSON=$(gh api "repos/${REPO}/releases/tags/${VERSION}" 2>/dev/null) || true
-    fi
-    if [ -z "${RELEASE_JSON:-}" ]; then
-        RELEASE_JSON=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/tags/${VERSION}")
-    fi
+    RELEASE_JSON=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/tags/${VERSION}")
 
     # Try asset names in order: bare binary, .tar.gz, .zip
     URL=""
